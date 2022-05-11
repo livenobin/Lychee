@@ -11,7 +11,6 @@ use App\Exceptions\Internal\FrameworkException;
 use App\Exceptions\Internal\IllegalOrderOfOperationException;
 use App\Exceptions\Internal\InvalidRotationDirectionException;
 use App\Exceptions\Internal\LycheeDomainException;
-use App\Exceptions\MediaFileOperationException;
 use App\Exceptions\MediaFileUnsupportedException;
 use App\Image\FlysystemFile;
 use App\Image\ImageHandler;
@@ -91,20 +90,17 @@ class RotateStrategy
 		// potential symbolic link which points to one of the original files.
 		// This will bring photo entity into the same state as it would be if
 		// we were importing a new photo.
+		// This also deletes the original size variant
 		$this->photo->size_variants->deleteAll();
 
 		// Create new target file for rotated original size variant,
 		// stream it into final place and delete the original file
+		// We also reset the photo of the naming strategy after the size
+		// variants have been deleted, in case the naming strategy has based
+		// its choice on the existing size variants.
+		$this->namingStrategy->setPhoto($this->photo);
 		$targetFile = $this->namingStrategy->createFile(SizeVariant::ORIGINAL);
 		$streamStat = $image->save($targetFile, true);
-		try {
-			$this->sourceFile->delete();
-		} catch (MediaFileOperationException $e) {
-			// If deletion failed, we do not cancel the whole rotation
-			// operation, but fall back to copy-semantics and log the
-			// exception
-			Handler::reportSafely($e);
-		}
 
 		// The checksum has been changed due to rotation.
 		$oldChecksum = $this->photo->checksum;
