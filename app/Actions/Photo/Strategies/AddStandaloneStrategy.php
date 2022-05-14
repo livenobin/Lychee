@@ -117,7 +117,12 @@ class AddStandaloneStrategy extends AddBaseStrategy
 			// we must move the preliminary extracted video file next to the
 			// final target file
 			if ($tmpVideoFile) {
-				$videoTargetFile = new FlysystemFile($targetFile->getDisk(), pathinfo($targetFile->getRelativePath(), PATHINFO_FILENAME) . $tmpVideoFile->getExtension());
+				$videoTargetPath =
+					pathinfo($targetFile->getRelativePath(), PATHINFO_DIRNAME) .
+					'/' .
+					pathinfo($targetFile->getRelativePath(), PATHINFO_FILENAME) .
+					$tmpVideoFile->getExtension();
+				$videoTargetFile = new FlysystemFile($targetFile->getDisk(), $videoTargetPath);
 				$videoTargetFile->write($tmpVideoFile->read());
 				$this->photo->live_photo_short_path = $videoTargetFile->getRelativePath();
 				$tmpVideoFile->close();
