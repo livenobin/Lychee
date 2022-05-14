@@ -271,7 +271,12 @@ class SizeVariants extends DTO
 	private static function replicateSizeVariant(SizeVariants $duplicate, ?SizeVariant $sizeVariant): void
 	{
 		if ($sizeVariant !== null) {
-			$duplicate->create($sizeVariant->type, $sizeVariant->short_path, $sizeVariant->width, $sizeVariant->height, $sizeVariant->filesize);
+			$duplicate->create(
+				$sizeVariant->type,
+				$sizeVariant->short_path,
+				new ImageDimension($sizeVariant->width, $sizeVariant->height),
+				$sizeVariant->filesize
+			);
 		}
 	}
 }
