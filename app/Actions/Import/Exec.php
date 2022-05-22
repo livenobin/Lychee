@@ -79,9 +79,6 @@ class Exec
 				}
 				echo $report->toJson();
 				$this->firstReportGiven = true;
-				if (ob_get_level() > 0) {
-					ob_flush();
-				}
 				flush();
 			} catch (JsonEncodingException) {
 				// do nothing
