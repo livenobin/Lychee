@@ -1,20 +1,26 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\Import;
 
 use App\Actions\Album\Create as AlbumCreate;
 use App\Actions\Photo\Create as PhotoCreate;
-use App\Actions\Photo\Strategies\ImportMode;
+use App\DTO\BaseImportReport;
 use App\DTO\ImportEventReport;
+use App\DTO\ImportMode;
 use App\DTO\ImportProgressReport;
-use App\DTO\ImportReport;
 use App\Exceptions\FileOperationException;
 use App\Exceptions\Handler;
 use App\Exceptions\ImportCancelledException;
 use App\Exceptions\Internal\FrameworkException;
 use App\Exceptions\InvalidDirectoryException;
 use App\Exceptions\ReservedDirectoryException;
-use App\Image\NativeLocalFile;
+use App\Image\Files\NativeLocalFile;
 use App\Models\Album;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Eloquent\JsonEncodingException;
@@ -22,6 +28,16 @@ use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Storage;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
+use Safe\Exceptions\FilesystemException;
+use Safe\Exceptions\InfoException;
+use Safe\Exceptions\StringsException;
+use function Safe\file;
+use function Safe\glob;
+use function Safe\ini_get;
+use function Safe\ob_flush;
+use function Safe\preg_match;
+use function Safe\realpath;
+use function Safe\set_time_limit;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class Exec
@@ -39,12 +55,16 @@ class Exec
 	 * @param bool       $enableCLIFormatting determines whether the output shall be formatted for CLI or as JSON
 	 * @param int        $memLimit            the threshold when a memory warning shall be reported; `0` means unlimited
 	 */
-	public function __construct(ImportMode $importMode, bool $enableCLIFormatting, int $memLimit = 0)
+	public function __construct(
+		ImportMode $importMode,
+		int $intendedOwnerId,
+		bool $enableCLIFormatting,
+		int $memLimit = 0)
 	{
 		Session::forget('cancel');
 		$this->importMode = $importMode;
-		$this->photoCreate = new PhotoCreate($importMode);
-		$this->albumCreate = new AlbumCreate();
+		$this->photoCreate = new PhotoCreate($importMode, $intendedOwnerId);
+		$this->albumCreate = new AlbumCreate($intendedOwnerId);
 		$this->enableCLIFormatting = $enableCLIFormatting;
 		$this->memLimit = $memLimit;
 	}
@@ -66,11 +86,11 @@ class Exec
 	 * If the `ImportReport` carries an exception, the exception is logged
 	 * via the standard mechanism of the exception handler.
 	 *
-	 * @param ImportReport $report the report
+	 * @param BaseImportReport $report the report
 	 *
 	 * @return void
 	 */
-	private function report(ImportReport $report): void
+	private function report(BaseImportReport $report): void
 	{
 		if (!$this->enableCLIFormatting) {
 			try {
@@ -90,7 +110,7 @@ class Exec
 			echo $report->toCLIString() . PHP_EOL;
 		}
 
-		if ($report instanceof ImportEventReport && $report->getException()) {
+		if ($report instanceof ImportEventReport && $report->getException() !== null) {
 			Handler::reportSafely($report->getException());
 		}
 	}
@@ -107,26 +127,61 @@ class Exec
 	 */
 	private static function normalizePath(string $path): string
 	{
-		if (str_ends_with($path, '/')) {
-			$path = substr($path, 0, -1);
-		}
-		$realPath = realpath($path);
+		try {
+			if (str_ends_with($path, '/')) {
+				$path = substr($path, 0, -1);
+			}
+			$realPath = realpath($path);
 
-		if (is_dir($realPath) === false) {
+			if (is_dir($realPath) === false) {
+				throw new InvalidDirectoryException('Given path is not a directory (' . $path . ')');
+			}
+
+			// Skip folders of Lychee
+			// Currently we must check for each directory which might be used
+			// by Lychee below `uploads/` individually, because the folder
+			// `uploads/import` is a potential source for imports and also
+			// placed below `uploads`.
+			// This is a design error and needs to be changed, at last when
+			// the media is stored remotely on a network storage such as
+			// AWS S3.
+			// A much better folder structure would be
+			//
+			// ```
+			//  |
+			//  +-- staging           // new directory which temporarily stores media which is not yet, but going to be added to Lychee
+			//  |     +-- imports     // replaces the current `uploads/import`
+			//  |     +-- uploads     // temporary storage location for images which have been uploaded via an HTTP POST request
+			//  |     +-- downloads   // temporary storage location for images which have been downloaded from a remote URL
+			//  +-- vault             // replaces the current `uploads/` and could be outsourced to a remote network storage
+			//        +-- original
+			//        +-- medium2x
+			//        +-- medium
+			//        +-- small2x
+			//        +-- small
+			//        +-- thumb2x
+			//        +-- thumb
+			// ```
+			//
+			// This way we could simply check if the path is anything below `vault`
+			if (
+				$realPath === Storage::path('big') ||
+				$realPath === Storage::path('raw') ||
+				$realPath === Storage::path('original') ||
+				$realPath === Storage::path('medium2x') ||
+				$realPath === Storage::path('medium') ||
+				$realPath === Storage::path('small2x') ||
+				$realPath === Storage::path('small') ||
+				$realPath === Storage::path('thumb2x') ||
+				$realPath === Storage::path('thumb')
+			) {
+				throw new ReservedDirectoryException('The given path is a reserved path of Lychee (' . $path . ')');
+			}
+
+			return $path;
+		} catch (FilesystemException|StringsException) {
 			throw new InvalidDirectoryException('Given path is not a directory (' . $path . ')');
 		}
-
-		// Skip folders of Lychee
-		if (
-			$realPath === Storage::path('big') ||
-			$realPath === Storage::path('medium') ||
-			$realPath === Storage::path('small') ||
-			$realPath === Storage::path('thumb')
-		) {
-			throw new ReservedDirectoryException('The given path is a reserved path of Lychee (' . $path . ')');
-		}
-
-		return $path;
 	}
 
 	/**
@@ -134,15 +189,16 @@ class Exec
 	 *
 	 * @param string $path
 	 *
-	 * @return array
+	 * @return array<int,string>
 	 *
 	 * @throws FileOperationException
 	 */
 	private static function readLocalIgnoreList(string $path): array
 	{
 		if (is_readable($path . '/.lycheeignore')) {
-			$result = file($path . '/.lycheeignore');
-			if ($result === false) {
+			try {
+				$result = file($path . '/.lycheeignore');
+			} catch (\Throwable) {
 				throw new FileOperationException('Could not read ' . $path . '/.lycheeignore');
 			}
 
@@ -188,7 +244,7 @@ class Exec
 	{
 		try {
 			// re-read session in case cancelling import was requested
-			session()->start();
+			Session::start();
 			if (Session::has('cancel')) {
 				Session::forget('cancel');
 				throw new ImportCancelledException();
@@ -211,8 +267,8 @@ class Exec
 	public function do(
 		string $path,
 		?Album $parentAlbum,
-		array $ignore_list = []
-	) {
+		array $ignore_list = [],
+	): void {
 		try {
 			$path = self::normalizePath($path);
 
@@ -221,7 +277,7 @@ class Exec
 
 			// TODO: Consider to use a modern OO-approach using [`DirectoryIterator`](https://www.php.net/manual/en/class.directoryiterator.php) and [`SplFileInfo`](https://www.php.net/manual/en/class.splfileinfo.php)
 			/** @var string[] $files */
-			$files = \Safe\glob($path . '/*');
+			$files = glob(preg_quote($path) . '/*');
 
 			$filesTotal = count($files);
 			$filesCount = 0;
@@ -232,7 +288,11 @@ class Exec
 			foreach ($files as $file) {
 				$this->assertImportNotCancelled();
 				// Reset the execution timeout for every iteration.
-				set_time_limit(ini_get('max_execution_time'));
+				try {
+					set_time_limit((int) ini_get('max_execution_time'));
+				} catch (InfoException) {
+					// Silently do nothing, if `set_time_limit` is denied.
+				}
 				// Report if we might be running out of memory.
 				$this->memWarningCheck();
 
@@ -276,13 +336,13 @@ class Exec
 			// Album creation per directory
 			foreach ($dirs as $dir) {
 				$this->assertImportNotCancelled();
-				$album = $this->importMode->shallSkipDuplicates() ?
+				/** @var Album|null */
+				$album = $this->importMode->shallSkipDuplicates ?
 					Album::query()
 						->select(['albums.*'])
 						->join('base_albums', 'base_albums.id', '=', 'albums.id')
 						->where('albums.parent_id', '=', $parentAlbum?->id)
 						->where('base_albums.title', '=', basename($dir))
-						->get()
 						->first() :
 					null;
 				if ($album === null) {
@@ -310,11 +370,11 @@ class Exec
 		$pattern = preg_replace_callback('/([^*])/', [self::class, 'preg_quote_callback_fct'], $pattern);
 		$pattern = str_replace('*', '.*', $pattern);
 
-		return (bool) preg_match('/^' . $pattern . '$/i', $filename);
+		return preg_match('/^' . $pattern . '$/i', $filename) === 1;
 	}
 
 	/**
-	 * @param array $my_array
+	 * @param array<int,string> $my_array
 	 *
 	 * @return string
 	 */

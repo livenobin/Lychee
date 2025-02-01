@@ -1,33 +1,41 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models;
 
 use App\Actions\Photo\Delete;
 use App\Casts\ArrayCast;
 use App\Casts\DateTimeWithTimezoneCast;
 use App\Casts\MustNotSetCast;
-use App\Contracts\HasRandomID;
+use App\Constants\RandomID;
+use App\Enum\LicenseType;
+use App\Enum\StorageDiskType;
 use App\Exceptions\Internal\IllegalOrderOfOperationException;
+use App\Exceptions\Internal\LycheeAssertionError;
 use App\Exceptions\Internal\ZeroModuloException;
 use App\Exceptions\MediaFileOperationException;
 use App\Exceptions\ModelDBException;
-use App\Facades\AccessControl;
 use App\Facades\Helpers;
-use App\Image\MediaFile;
-use App\Models\Extensions\HasAttributesPatch;
+use App\Image\Files\BaseMediaFile;
+use App\Models\Builders\PhotoBuilder;
 use App\Models\Extensions\HasBidirectionalRelationships;
 use App\Models\Extensions\HasRandomIDAndLegacyTimeBasedID;
 use App\Models\Extensions\SizeVariants;
 use App\Models\Extensions\ThrowsConsistentExceptions;
-use App\Models\Extensions\UseFixedQueryBuilder;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Models\Extensions\UTCBasedTimes;
 use App\Relations\HasManySizeVariants;
-use App\Relations\LinkedPhotoCollection;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
+use function Safe\preg_match;
 
 /**
  * App\Photo.
@@ -37,7 +45,6 @@ use Illuminate\Support\Facades\Storage;
  * @property string       $title
  * @property string|null  $description
  * @property string[]     $tags
- * @property bool         $is_public
  * @property int          $owner_id
  * @property string|null  $type
  * @property string|null  $iso
@@ -54,14 +61,15 @@ use Illuminate\Support\Facades\Storage;
  * @property string|null  $location
  * @property Carbon|null  $taken_at
  * @property string|null  $taken_at_orig_tz
+ * @property Carbon|null  $initial_taken_at
+ * @property string|null  $initial_taken_at_orig_tz
  * @property bool         $is_starred
  * @property string|null  $live_photo_short_path
- * @property string|null  $live_photo_full_path
  * @property string|null  $live_photo_url
  * @property string|null  $album_id
  * @property string       $checksum
  * @property string       $original_checksum
- * @property string       $license
+ * @property LicenseType  $license
  * @property Carbon       $created_at
  * @property Carbon       $updated_at
  * @property string|null  $live_photo_content_id
@@ -69,19 +77,66 @@ use Illuminate\Support\Facades\Storage;
  * @property Album|null   $album
  * @property User         $owner
  * @property SizeVariants $size_variants
- * @property bool         $is_downloadable
- * @property bool         $is_share_button_visible
+ * @property int          $filesize
+ *
+ * @method static PhotoBuilder|Photo addSelect($column)
+ * @method static PhotoBuilder|Photo join(string $table, string $first, string $operator = null, string $second = null, string $type = 'inner', string $where = false)
+ * @method static PhotoBuilder|Photo joinSub($query, $as, $first, $operator = null, $second = null, $type = 'inner', $where = false)
+ * @method static PhotoBuilder|Photo leftJoin(string $table, string $first, string $operator = null, string $second = null)
+ * @method static PhotoBuilder|Photo newModelQuery()
+ * @method static PhotoBuilder|Photo newQuery()
+ * @method static PhotoBuilder|Photo orderBy($column, $direction = 'asc')
+ * @method static PhotoBuilder|Photo query()
+ * @method static PhotoBuilder|Photo with(array|string $relations)
+ * @method static PhotoBuilder|Photo select($columns = [])
+ * @method static PhotoBuilder|Photo whereAlbumId($value)
+ * @method static PhotoBuilder|Photo whereAltitude($value)
+ * @method static PhotoBuilder|Photo whereAperture($value)
+ * @method static PhotoBuilder|Photo whereChecksum($value)
+ * @method static PhotoBuilder|Photo whereCreatedAt($value)
+ * @method static PhotoBuilder|Photo whereDescription($value)
+ * @method static PhotoBuilder|Photo whereFilesize($value)
+ * @method static PhotoBuilder|Photo whereFocal($value)
+ * @method static PhotoBuilder|Photo whereId($value)
+ * @method static PhotoBuilder|Photo whereImgDirection($value)
+ * @method static PhotoBuilder|Photo whereIn(string $column, string $values, string $boolean = 'and', string $not = false)
+ * @method static PhotoBuilder|Photo whereIsStarred($value)
+ * @method static PhotoBuilder|Photo whereIso($value)
+ * @method static PhotoBuilder|Photo whereLatitude($value)
+ * @method static PhotoBuilder|Photo whereLegacyId($value)
+ * @method static PhotoBuilder|Photo whereLens($value)
+ * @method static PhotoBuilder|Photo whereLicense($value)
+ * @method static PhotoBuilder|Photo whereLivePhotoChecksum($value)
+ * @method static PhotoBuilder|Photo whereLivePhotoContentId($value)
+ * @method static PhotoBuilder|Photo whereLivePhotoShortPath($value)
+ * @method static PhotoBuilder|Photo whereLocation($value)
+ * @method static PhotoBuilder|Photo whereLongitude($value)
+ * @method static PhotoBuilder|Photo whereMake($value)
+ * @method static PhotoBuilder|Photo whereModel($value)
+ * @method static PhotoBuilder|Photo whereNotIn(string $column, string $values, string $boolean = 'and')
+ * @method static PhotoBuilder|Photo whereOriginalChecksum($value)
+ * @method static PhotoBuilder|Photo whereOwnerId($value)
+ * @method static PhotoBuilder|Photo whereShutter($value)
+ * @method static PhotoBuilder|Photo whereTags($value)
+ * @method static PhotoBuilder|Photo whereTakenAt($value)
+ * @method static PhotoBuilder|Photo whereTakenAtOrigTz($value)
+ * @method static PhotoBuilder|Photo whereTitle($value)
+ * @method static PhotoBuilder|Photo whereType($value)
+ * @method static PhotoBuilder|Photo whereUpdatedAt($value)
+ *
+ * @mixin \Eloquent
  */
-class Photo extends Model implements HasRandomID
+class Photo extends Model
 {
+	/** @phpstan-use HasFactory<\Database\Factories\PhotoFactory> */
+	use HasFactory;
 	use UTCBasedTimes;
-	use HasAttributesPatch;
+	/** @phpstan-use HasRandomIDAndLegacyTimeBasedID<Photo> */
 	use HasRandomIDAndLegacyTimeBasedID;
-	use ThrowsConsistentExceptions {
-		ThrowsConsistentExceptions::delete as private internalDelete;
-	}
+	use ThrowsConsistentExceptions;
+	/** @phpstan-use HasBidirectionalRelationships */
 	use HasBidirectionalRelationships;
-	use UseFixedQueryBuilder;
+	use ToArrayThrowsNotImplemented;
 
 	/**
 	 * @var string The type of the primary key
@@ -96,17 +151,15 @@ class Photo extends Model implements HasRandomID
 	public $incrementing = false;
 
 	protected $casts = [
-		HasRandomID::LEGACY_ID_NAME => HasRandomID::LEGACY_ID_TYPE,
+		RandomID::LEGACY_ID_NAME => RandomID::LEGACY_ID_TYPE,
 		'created_at' => 'datetime',
 		'updated_at' => 'datetime',
 		'taken_at' => DateTimeWithTimezoneCast::class,
-		'live_photo_full_path' => MustNotSetCast::class . ':live_photo_short_path',
+		'initial_taken_at' => DateTimeWithTimezoneCast::class,
 		'live_photo_url' => MustNotSetCast::class . ':live_photo_short_path',
-		'is_downloadable' => MustNotSetCast::class,
-		'is_share_button_visible' => MustNotSetCast::class,
+		'taken_at_mod' => 'datetime',
 		'owner_id' => 'integer',
 		'is_starred' => 'boolean',
-		'is_public' => 'boolean',
 		'tags' => ArrayCast::class,
 		'latitude' => 'float',
 		'longitude' => 'float',
@@ -115,11 +168,11 @@ class Photo extends Model implements HasRandomID
 	];
 
 	/**
-	 * @var string[] The list of attributes which exist as columns of the DB
-	 *               relation but shall not be serialized to JSON
+	 * @var array<int,string> The list of attributes which exist as columns of the DB
+	 *                        relation but shall not be serialized to JSON
 	 */
 	protected $hidden = [
-		HasRandomID::LEGACY_ID_NAME,
+		RandomID::LEGACY_ID_NAME,
 		'album',  // do not serialize relation in order to avoid infinite loops
 		'owner',  // do not serialize relation
 		'owner_id',
@@ -127,52 +180,33 @@ class Photo extends Model implements HasRandomID
 	];
 
 	/**
-	 * @var string[] The list of "virtual" attributes which do not exist as
-	 *               columns of the DB relation but which shall be appended to
-	 *               JSON from accessors
+	 * @param $query
+	 *
+	 * @return PhotoBuilder
 	 */
-	protected $appends = [
-		'live_photo_url',
-		'is_downloadable',
-		'is_share_button_visible',
-	];
-
-	/**
-	 * Creates a new instance of {@link LinkedPhotoCollection}.
-	 *
-	 * The only difference between an ordinary {@link Collection} and a
-	 * {@link LinkedPhotoCollection} is that the latter also adds links to
-	 * the previous and next photo if the collection is serialized to JSON.
-	 * This method is called by all relations which need to create a
-	 * collection of photos.
-	 *
-	 * @param array $models a list of {@link Photo} models
-	 *
-	 * @return LinkedPhotoCollection
-	 */
-	public function newCollection(array $models = []): LinkedPhotoCollection
+	public function newEloquentBuilder($query): PhotoBuilder
 	{
-		return new LinkedPhotoCollection($models);
+		return new PhotoBuilder($query);
 	}
 
 	/**
 	 * Return the relationship between a Photo and its Album.
 	 *
-	 * @return BelongsTo
+	 * @return BelongsTo<Album,$this>
 	 */
 	public function album(): BelongsTo
 	{
-		return $this->belongsTo('App\Models\Album', 'album_id', 'id');
+		return $this->belongsTo(Album::class, 'album_id', 'id');
 	}
 
 	/**
 	 * Return the relationship between a Photo and its Owner.
 	 *
-	 * @return BelongsTo
+	 * @return BelongsTo<User,$this>
 	 */
 	public function owner(): BelongsTo
 	{
-		return $this->belongsTo('App\Models\User', 'owner_id', 'id');
+		return $this->belongsTo(User::class, 'owner_id', 'id');
 	}
 
 	public function size_variants(): HasManySizeVariants
@@ -193,15 +227,15 @@ class Photo extends Model implements HasRandomID
 	 * re-format the string on every fetch.
 	 * TODO: Refactor this.
 	 *
-	 * @param ?string $shutter the value from the database passed in by
-	 *                         the Eloquent framework
+	 * @param string|null $shutter the value from the database passed in by
+	 *                             the Eloquent framework
 	 *
 	 * @return ?string A properly formatted shutter value
 	 */
 	protected function getShutterAttribute(?string $shutter): ?string
 	{
 		try {
-			if (empty($shutter)) {
+			if ($shutter === null || $shutter === '') {
 				return null;
 			}
 			// shutter speed needs to be processed. It is stored as a string `a/b s`
@@ -210,11 +244,11 @@ class Photo extends Model implements HasRandomID
 				if ($matches) {
 					$a = intval($matches[1]);
 					$b = intval($matches[2]);
-					if ($b != 0) {
+					if ($b !== 0) {
 						$gcd = Helpers::gcd($a, $b);
-						$a = $a / $gcd;
-						$b = $b / $gcd;
-						if ($a == 1) {
+						$a /= $gcd;
+						$b /= $gcd;
+						if ($a === 1) {
 							$shutter = '1/' . $b . ' s';
 						} else {
 							$shutter = ($a / $b) . ' s';
@@ -223,15 +257,17 @@ class Photo extends Model implements HasRandomID
 				}
 			}
 
-			if ($shutter == '1/1 s') {
+			if ($shutter === '1/1 s') {
 				$shutter = '1 s';
 			}
 
 			return $shutter;
+			// @codeCoverageIgnoreStart
 		} catch (ZeroModuloException $e) {
 			// this should not happen as we covered the case $b = 0;
-			assert(false, new \AssertionError('Unexpected ZeroModuloException', $e->getCode(), $e));
+			throw LycheeAssertionError::createFromUnexpectedException($e);
 		}
+		// @codeCoverageIgnoreEnd
 	}
 
 	/**
@@ -242,21 +278,26 @@ class Photo extends Model implements HasRandomID
 	 * part of an album) or the default license of the application-wide
 	 * setting is returned.
 	 *
-	 * @param string $license the value from the database passed in by
-	 *                        the Eloquent framework
+	 * @param ?string $license the value from the database passed in by
+	 *                         the Eloquent framework
 	 *
-	 * @return string
+	 * @return LicenseType
 	 */
-	protected function getLicenseAttribute(string $license): string
+	protected function getLicenseAttribute(?string $license): LicenseType
 	{
-		if ($license !== 'none') {
-			return $license;
+		if ($license === null) {
+			return Configs::getValueAsEnum('default_license', LicenseType::class);
 		}
-		if ($this->album_id != null) {
+
+		if (LicenseType::tryFrom($license) !== null && LicenseType::tryFrom($license) !== LicenseType::NONE) {
+			return LicenseType::from($license);
+		}
+
+		if ($this->album_id !== null && $this->relationLoaded('album')) {
 			return $this->album->license;
 		}
 
-		return Configs::get_value('default_license');
+		return Configs::getValueAsEnum('default_license', LicenseType::class);
 	}
 
 	/**
@@ -270,8 +311,8 @@ class Photo extends Model implements HasRandomID
 	 * not every time when it is read from the database.
 	 * TODO: Refactor this.
 	 *
-	 * @param ?string $focal the value from the database passed in by the
-	 *                       Eloquent framework
+	 * @param string|null $focal the value from the database passed in by the
+	 *                           Eloquent framework
 	 *
 	 * @return ?string
 	 *
@@ -279,27 +320,12 @@ class Photo extends Model implements HasRandomID
 	 */
 	protected function getFocalAttribute(?string $focal): ?string
 	{
-		if (empty($focal)) {
+		if ($focal === null || $focal === '') {
 			return null;
 		}
-		// We need to format the framerate (stored as focal) -> max 2 decimal digits
-		return $this->isVideo() ? (string) round($focal, 2) : $focal;
-	}
 
-	/**
-	 * Accessor for the "virtual" attribute {@see Photo::$live_photo_full_path}.
-	 *
-	 * Returns the full path of the live photo as it needs to be input into
-	 * some low-level PHP functions like `unlink`.
-	 * This is a convenient method and wraps
-	 * {@link Photo::$live_photo_short_path} into
-	 * {@link \Illuminate\Support\Facades\Storage::path()}.
-	 *
-	 * @return string|null The full path of the live photo
-	 */
-	protected function getLivePhotoFullPathAttribute(): ?string
-	{
-		return empty($this->live_photo_short_path) ? null : Storage::path($this->live_photo_short_path);
+		// We need to format the framerate (stored as focal) -> max 2 decimal digits
+		return $this->isVideo() ? (string) round(floatval($focal), 2) : $focal;
 	}
 
 	/**
@@ -315,43 +341,34 @@ class Photo extends Model implements HasRandomID
 	 */
 	protected function getLivePhotoUrlAttribute(): ?string
 	{
-		return empty($this->live_photo_short_path) ? null : Storage::url($this->live_photo_short_path);
+		$path = $this->live_photo_short_path;
+		$disk_name = $this->size_variants->getOriginal()?->storage_disk?->value ?? StorageDiskType::LOCAL->value;
+
+		/** @disregard P1013 */
+		return ($path === null || $path === '') ? null : Storage::disk($disk_name)->url($path);
 	}
 
 	/**
-	 * Accessor for the "virtual" attribute {@see Photo::$is_downloadable}.
+	 * Accessor for the virtual attribute $aspect_ratio.
 	 *
-	 * The photo is downloadable if the currently authenticated user is the
-	 * owner or if the photo is part of a downloadable album or if it is
-	 * unsorted and unsorted photos are configured to be downloadable by
-	 * default.
+	 * Returns the correct aspect ratio for
+	 * - photos
+	 * - and videos where small or medium exists
+	 * Otherwise returns 1 (square)
 	 *
-	 * @return bool true if the photo is downloadable
+	 * @return float aspect ratio to use in display mode
 	 */
-	protected function getIsDownloadableAttribute(): bool
+	protected function getAspectRatioAttribute(): float
 	{
-		return AccessControl::is_current_user_or_admin($this->owner_id) ||
-			($this->album_id != null && $this->album->is_downloadable) ||
-			($this->album_id == null && Configs::get_value('downloadable', '0'));
-	}
+		if ($this->isVideo() &&
+			$this->size_variants->getSmall() === null &&
+			$this->size_variants->getMedium() === null) {
+			return 1;
+		}
 
-	/**
-	 * Accessor for the "virtual" attribute {@see Photo::$is_share_button_visible}.
-	 *
-	 * The share button is visible if the currently authenticated user is the
-	 * owner or if the photo is part of an album which has enabled the
-	 * share button or if the photo is unsorted and unsorted photos are
-	 * configured to be sharable by default.
-	 *
-	 * @return bool true if the share button is visible for this photo
-	 */
-	protected function getIsShareButtonVisibleAttribute(): bool
-	{
-		$default = (bool) Configs::get_value('share_button_visible', '0');
-
-		return AccessControl::is_current_user_or_admin($this->owner_id) ||
-			($this->album_id != null && $this->album->is_share_button_visible) ||
-			($this->album_id == null && $default);
+		return $this->size_variants->getOriginal()?->ratio ??
+			$this->size_variants->getMedium()?->ratio ??
+			$this->size_variants->getSmall()?->ratio ?? 1;
 	}
 
 	/**
@@ -363,11 +380,13 @@ class Photo extends Model implements HasRandomID
 	 */
 	public function isPhoto(): bool
 	{
-		if (empty($this->type)) {
+		if ($this->type === null || $this->type === '') {
+			// @codeCoverageIgnoreStart
 			throw new IllegalOrderOfOperationException('Photo::isPhoto() must not be called before Photo::$type has been set');
+			// @codeCoverageIgnoreEnd
 		}
 
-		return MediaFile::isSupportedImageMimeType($this->type);
+		return BaseMediaFile::isSupportedImageMimeType($this->type);
 	}
 
 	/**
@@ -379,11 +398,13 @@ class Photo extends Model implements HasRandomID
 	 */
 	public function isVideo(): bool
 	{
-		if (empty($this->type)) {
+		if ($this->type === null || $this->type === '') {
+			// @codeCoverageIgnoreStart
 			throw new IllegalOrderOfOperationException('Photo::isVideo() must not be called before Photo::$type has been set');
+			// @codeCoverageIgnoreEnd
 		}
 
-		return MediaFile::isSupportedVideoMimeType($this->type);
+		return BaseMediaFile::isSupportedVideoMimeType($this->type);
 	}
 
 	/**
@@ -402,57 +423,9 @@ class Photo extends Model implements HasRandomID
 	}
 
 	/**
-	 * Serializes the model into an array.
-	 *
-	 * This method is also invoked by Eloquent when someone invokes
-	 * {@link Model::toJson()} or {@link Model::jsonSerialize()}.
-	 *
-	 * This method removes the URL to the full resolution of a photo, if the
-	 * client is not allowed to see that.
-	 *
-	 * @return array
-	 *
-	 * @throws IllegalOrderOfOperationException
+	 * @param string[] $except
 	 */
-	public function toArray(): array
-	{
-		$result = parent::toArray();
-
-		// Modify the attribute `public`
-		// The current front-end implementation does not expect a boolean
-		// but a tri-state integer acc. to the following interpretation
-		//  - 0 => the photo is not publicly visible
-		//  - 1 => the photo is publicly visible on its own right
-		//  - 2 => the photo is publicly visible because its album is public
-		if ($this->album_id != null && $this->album->is_public) {
-			$result['is_public'] = 2;
-		} else {
-			$result['is_public'] = $result['is_public'] ? 1 : 0;
-		}
-
-		// Downgrades the accessible resolution of a photo
-		// The decision logic here is a merge of three formerly independent
-		// (and slightly different) approaches
-		if (
-			!AccessControl::is_current_user_or_admin($this->owner_id) &&
-			$this->isVideo() === false &&
-			($result['size_variants']['medium2x'] !== null || $result['size_variants']['medium'] !== null) &&
-			(
-				($this->album_id != null && !$this->album->grants_full_photo) ||
-				($this->album_id == null && Configs::get_value('full_photo', '1') != '1')
-			)
-		) {
-			unset($result['size_variants']['original']['url']);
-		}
-
-		return $result;
-	}
-
-	/**
-	 * @throws ModelDBException
-	 * @throws IllegalOrderOfOperationException
-	 */
-	public function replicate(array $except = null): Photo
+	public function replicate(?array $except = null): Photo
 	{
 		$duplicate = parent::replicate($except);
 		// A photo has the following relations: (parent) album, owner and

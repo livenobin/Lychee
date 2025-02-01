@@ -1,61 +1,47 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\Photo;
 
 use App\Actions\Photo\Extensions\ArchiveFileInfo;
-use App\Contracts\LycheeException;
+use App\Contracts\Exceptions\LycheeException;
+use App\Enum\DownloadVariantType;
+use App\Enum\SizeVariantType;
+use App\Exceptions\ConfigurationKeyMissingException;
 use App\Exceptions\Internal\FrameworkException;
 use App\Exceptions\Internal\InvalidSizeVariantException;
-use App\Image\FlysystemFile;
+use App\Image\Files\FlysystemFile;
 use App\Models\Configs;
 use App\Models\Photo;
-use App\Models\SizeVariant;
-use DateTimeInterface;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
+use Safe\Exceptions\InfoException;
+use function Safe\fclose;
+use function Safe\fopen;
+use function Safe\ini_get;
+use function Safe\set_time_limit;
+use function Safe\stream_copy_to_stream;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use ZipStream\CompressionMethod as ZipMethod;
 use ZipStream\ZipStream;
 
 class Archive
 {
-	public const LIVEPHOTOVIDEO = 'LIVEPHOTOVIDEO';
-	public const FULL = 'FULL';
-	public const MEDIUM2X = 'MEDIUM2X';
-	public const MEDIUM = 'MEDIUM';
-	public const SMALL2X = 'SMALL2X';
-	public const SMALL = 'SMALL';
-	public const THUMB2X = 'THUMB2X';
-	public const THUMB = 'THUMB';
-
-	public const VARIANTS = [
-		self::LIVEPHOTOVIDEO,
-		self::FULL,
-		self::MEDIUM2X,
-		self::MEDIUM,
-		self::SMALL2X,
-		self::SMALL,
-		self::THUMB2X,
-		self::THUMB,
+	public const BAD_CHARS = [
+		"\x00", "\x01", "\x02", "\x03", "\x04", "\x05", "\x06", "\x07",
+		"\x08", "\x09", "\x0a", "\x0b", "\x0c", "\x0d", "\x0e", "\x0f",
+		"\x10", "\x11", "\x12", "\x13", "\x14", "\x15", "\x16", "\x17",
+		"\x18", "\x19", "\x1a", "\x1b", "\x1c", "\x1d", "\x1e", "\x1f",
+		'<', '>', ':', '"', '/', '\\', '|', '?', '*',
 	];
 
-	public const VARIANT2VARIANT = [
-		self::FULL => SizeVariant::ORIGINAL,
-		self::MEDIUM2X => SizeVariant::MEDIUM2X,
-		self::MEDIUM => SizeVariant::MEDIUM,
-		self::SMALL2X => SizeVariant::SMALL2X,
-		self::SMALL => SizeVariant::SMALL,
-		self::THUMB2X => SizeVariant::THUMB2X,
-		self::THUMB => SizeVariant::THUMB,
-	];
-
-	private array $badChars;
-
-	public function __construct()
-	{
-		// Illicit chars
-		$this->badChars = array_merge(array_map('chr', range(0, 31)), ['<', '>', ':', '"', '/', '\\', '|', '?', '*']);
-	}
+	protected int $deflateLevel = -1;
 
 	/**
 	 * Returns a response for a downloadable file.
@@ -64,29 +50,19 @@ class Archive
 	 * a single element) or a ZIP file (if the array of photo IDs contains
 	 * more than one element).
 	 *
-	 * @param Collection<Photo> $photos  the photos which shall be included
-	 *                                   in the response
-	 * @param string            $variant the desired variant of the photo;
-	 *                                   valid values are
-	 *                                   {@link Archive::LIVEPHOTOVIDEO},
-	 *                                   {@link Archive::FULL},
-	 *                                   {@link Archive::MEDIUM2X},
-	 *                                   {@link Archive::MEDIUM},
-	 *                                   {@link Archive::SMALL2X},
-	 *                                   {@link Archive::SMALL},
-	 *                                   {@link Archive::THUMB2X},
-	 *                                   {@link Archive::THUMB}
+	 * @param Collection<int,Photo> $photos          the photos which shall be included in the response
+	 * @param DownloadVariantType   $downloadVariant the desired variant of the photo
 	 *
 	 * @return StreamedResponse
 	 *
 	 * @throws LycheeException
 	 */
-	public function do(Collection $photos, string $variant): StreamedResponse
+	public function do(Collection $photos, DownloadVariantType $downloadVariant): StreamedResponse
 	{
 		if ($photos->count() === 1) {
-			$response = $this->file($photos->first(), $variant);
+			$response = $this->file($photos->firstOrFail(), $downloadVariant);
 		} else {
-			$response = $this->zip($photos, $variant);
+			$response = $this->zip($photos, $downloadVariant);
 		}
 
 		return $response;
@@ -107,21 +83,21 @@ class Archive
 	 * However, the client would not get a "nice" file name, but the
 	 * random file name of the size variant.
 	 *
-	 * @param Photo  $photo   the photo
-	 * @param string $variant the requested size variant
+	 * @param Photo               $photo           the photo
+	 * @param DownloadVariantType $downloadVariant the requested size variant
 	 *
 	 * @return StreamedResponse
 	 *
 	 * @throws LycheeException
 	 */
-	protected function file(Photo $photo, string $variant): StreamedResponse
+	protected function file(Photo $photo, DownloadVariantType $downloadVariant): StreamedResponse
 	{
-		$archiveFileInfo = $this->extractFileInfo($photo, $variant);
+		$archiveFileInfo = $this->extractFileInfo($photo, $downloadVariant);
 
 		$responseGenerator = function () use ($archiveFileInfo) {
 			$outputStream = fopen('php://output', 'wb');
-			stream_copy_to_stream($archiveFileInfo->getFile()->read(), $outputStream);
-			$archiveFileInfo->getFile()->close();
+			stream_copy_to_stream($archiveFileInfo->file->read(), $outputStream);
+			$archiveFileInfo->file->close();
 			fclose($outputStream);
 		};
 
@@ -129,11 +105,12 @@ class Archive
 			$response = new StreamedResponse($responseGenerator);
 			$disposition = HeaderUtils::makeDisposition(
 				HeaderUtils::DISPOSITION_ATTACHMENT,
-				$archiveFileInfo->getFilename()
+				$archiveFileInfo->getFilename(),
+				mb_check_encoding($archiveFileInfo->getFilename(), 'ASCII') ? '' : 'Photo' . $archiveFileInfo->file->getExtension()
 			);
 			$response->headers->set('Content-Type', $photo->type);
 			$response->headers->set('Content-Disposition', $disposition);
-			$response->headers->set('Content-Length', $archiveFileInfo->getFile()->getFilesize());
+			$response->headers->set('Content-Length', strval($archiveFileInfo->file->getFilesize()));
 			// Note: Using insecure hashing algorithm is fine here.
 			// The ETag header must only be different for different size variants
 			// Pre-image resistance and collision robustness is not required.
@@ -142,8 +119,13 @@ class Archive
 			// The only reason why we don't use the path directly is that
 			// we must avoid illegal characters like `/` and md5 returns a
 			// hexadecimal string.
-			$response->headers->set('ETag', md5($archiveFileInfo->getFile()->getAbsolutePath()));
-			$response->headers->set('Last-Modified', $photo->updated_at->format(DateTimeInterface::RFC7231));
+			$response->headers->set('ETag', md5(
+				$archiveFileInfo->file->getBasename() .
+				$downloadVariant->value .
+				$photo->updated_at->toAtomString() .
+				$archiveFileInfo->file->getFilesize())
+			);
+			$response->headers->set('Last-Modified', $photo->updated_at->format(\DateTimeInterface::RFC7231));
 
 			return $response;
 		} catch (\InvalidArgumentException $e) {
@@ -152,19 +134,20 @@ class Archive
 	}
 
 	/**
-	 * @param Collection $photos
-	 * @param string     $variant
+	 * @param Collection<int,Photo> $photos
+	 * @param DownloadVariantType   $downloadVariant
 	 *
 	 * @return StreamedResponse
 	 *
 	 * @throws FrameworkException
+	 * @throws ConfigurationKeyMissingException
 	 */
-	protected function zip(Collection $photos, string $variant): StreamedResponse
+	protected function zip(Collection $photos, DownloadVariantType $downloadVariant): StreamedResponse
 	{
-		$responseGenerator = function () use ($variant, $photos) {
-			$options = new \ZipStream\Option\Archive();
-			$options->setEnableZip64(Configs::get_value('zip64', '1') === '1');
-			$zip = new ZipStream(null, $options);
+		$this->deflateLevel = Configs::getValueAsInt('zip_deflate_level');
+
+		$responseGenerator = function () use ($downloadVariant, $photos) {
+			$zip = new ZipStream(enableZip64: Configs::getValueAsBool('zip64'), defaultEnableZeroHeader: true, sendHttpHeaders: false);
 
 			// We first need to scan the whole array of files to avoid
 			// problems with duplicate file names.
@@ -227,11 +210,11 @@ class Archive
 			// Partition the set
 			/** @var Photo $photo */
 			foreach ($photos as $photo) {
-				$archiveFileInfo = $this->extractFileInfo($photo, $variant);
+				$archiveFileInfo = $this->extractFileInfo($photo, $downloadVariant);
 				$archiveFileInfos[] = $archiveFileInfo;
 				$filename = $archiveFileInfo->getFilename();
 				if (array_key_exists($filename, $ambiguousFilenames)) {
-					continue;
+					// do nothing
 				} elseif (array_key_exists($filename, $uniqueFilenames)) {
 					unset($uniqueFilenames[$filename]);
 					$ambiguousFilenames[$filename] = 0;
@@ -255,10 +238,16 @@ class Archive
 						);
 					} while (array_key_exists($filename, $uniqueFilenames));
 				}
-				$zip->addFileFromStream($filename, $archiveFileInfo->getFile()->read());
-				$archiveFileInfo->getFile()->close();
+				$zip->addFileFromStream(fileName: $filename, stream: $archiveFileInfo->file->read(),
+					compressionMethod: $this->deflateLevel === -1 ? ZipMethod::STORE : ZipMethod::DEFLATE,
+					deflateLevel: $this->deflateLevel);
+				$archiveFileInfo->file->close();
 				// Reset the execution timeout for every iteration.
-				set_time_limit(ini_get('max_execution_time'));
+				try {
+					set_time_limit((int) ini_get('max_execution_time'));
+				} catch (InfoException) {
+					// Silently do nothing, if `set_time_limit` is denied.
+				}
 			}
 
 			// finish the zip stream
@@ -288,47 +277,38 @@ class Archive
 	/**
 	 * Creates a {@link ArchiveFileInfo} for the indicated photo and variant.
 	 *
-	 * @param Photo  $photo   the photo whose archive information
-	 *                        shall be returned
-	 * @param string $variant the desired variant of the photo; valid values
-	 *                        are
-	 *                        {@link Archive::LIVEPHOTOVIDEO},
-	 *                        {@link Archive::FULL},
-	 *                        {@link Archive::MEDIUM2X},
-	 *                        {@link Archive::MEDIUM},
-	 *                        {@link Archive::SMALL2X},
-	 *                        {@link Archive::SMALL},
-	 *                        {@link Archive::THUMB2X},
-	 *                        {@link Archive::THUMB}
+	 * @param Photo               $photo           the photo whose archive information shall be returned
+	 * @param DownloadVariantType $downloadVariant the desired variant of the photo
 	 *
 	 * @return ArchiveFileInfo the created archive info
 	 *
 	 * @throws InvalidSizeVariantException
 	 */
-	protected function extractFileInfo(Photo $photo, string $variant): ArchiveFileInfo
+	protected function extractFileInfo(Photo $photo, DownloadVariantType $downloadVariant): ArchiveFileInfo
 	{
-		$baseFilename = str_replace($this->badChars, '', $photo->title) ?: 'Untitled';
+		$validFilename = str_replace(self::BAD_CHARS, '', $photo->title);
+		$baseFilename = $validFilename !== '' ? $validFilename : 'Untitled';
+		$baseFilename = pathinfo($baseFilename, PATHINFO_FILENAME);
 
-		if ($variant === self::LIVEPHOTOVIDEO) {
-			$sourceFile = new FlysystemFile(Storage::disk(), $photo->live_photo_short_path);
+		if ($downloadVariant === DownloadVariantType::LIVEPHOTOVIDEO) {
+			$disk = $photo->size_variants->getSizeVariant(SizeVariantType::ORIGINAL)->storage_disk->value;
+			$sourceFile = new FlysystemFile(Storage::disk($disk), $photo->live_photo_short_path);
 			$baseFilenameAddon = '';
-		} elseif (array_key_exists($variant, self::VARIANT2VARIANT)) {
-			$sv = $photo->size_variants->getSizeVariant(self::VARIANT2VARIANT[$variant]);
+		} else {
+			$sv = $photo->size_variants->getSizeVariant($downloadVariant->getSizeVariantType());
 			$baseFilenameAddon = '';
-			if ($sv) {
+			if ($sv !== null) {
 				$sourceFile = $sv->getFile();
 				// The filename of the original size variant shall get no
 				// particular suffix but remain as is.
 				// All other size variants (i.e. the generated, smaller ones)
 				// get size information as suffix.
-				if ($sv->type !== SizeVariant::ORIGINAL) {
+				if ($sv->type !== SizeVariantType::ORIGINAL) {
 					$baseFilenameAddon = '-' . $sv->width . 'x' . $sv->height;
 				}
 			} else {
 				throw new InvalidSizeVariantException('Size variant missing');
 			}
-		} else {
-			throw new InvalidSizeVariantException('Invalid type of size variant ' . $variant);
 		}
 
 		return new ArchiveFileInfo($baseFilename, $baseFilenameAddon, $sourceFile);

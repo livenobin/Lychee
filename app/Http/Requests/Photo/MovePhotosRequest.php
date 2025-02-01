@@ -1,11 +1,18 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Http\Requests\Photo;
 
+use App\Contracts\Http\Requests\HasAlbum;
+use App\Contracts\Http\Requests\HasPhotos;
+use App\Contracts\Http\Requests\RequestAttribute;
 use App\Http\Requests\BaseApiRequest;
-use App\Http\Requests\Contracts\HasAbstractAlbum;
-use App\Http\Requests\Contracts\HasAlbum;
-use App\Http\Requests\Contracts\HasPhotos;
+use App\Http\Requests\Traits\Authorize\AuthorizeCanEditPhotosAlbumTrait;
 use App\Http\Requests\Traits\HasAlbumTrait;
 use App\Http\Requests\Traits\HasPhotosTrait;
 use App\Models\Album;
@@ -16,15 +23,7 @@ class MovePhotosRequest extends BaseApiRequest implements HasPhotos, HasAlbum
 {
 	use HasPhotosTrait;
 	use HasAlbumTrait;
-
-	/**
-	 * {@inheritDoc}
-	 */
-	public function authorize(): bool
-	{
-		return $this->authorizePhotosWrite($this->photos) &&
-			$this->authorizeAlbumWrite($this->album);
-	}
+	use AuthorizeCanEditPhotosAlbumTrait;
 
 	/**
 	 * {@inheritDoc}
@@ -32,9 +31,9 @@ class MovePhotosRequest extends BaseApiRequest implements HasPhotos, HasAlbum
 	public function rules(): array
 	{
 		return [
-			HasPhotos::PHOTO_IDS_ATTRIBUTE => 'required|array|min:1',
-			HasPhotos::PHOTO_IDS_ATTRIBUTE . '.*' => ['required', new RandomIDRule(false)],
-			HasAbstractAlbum::ALBUM_ID_ATTRIBUTE => ['present', new RandomIDRule(true)],
+			RequestAttribute::PHOTO_IDS_ATTRIBUTE => 'required|array|min:1',
+			RequestAttribute::PHOTO_IDS_ATTRIBUTE . '.*' => ['required', new RandomIDRule(false)],
+			RequestAttribute::ALBUM_ID_ATTRIBUTE => ['present', new RandomIDRule(true)],
 		];
 	}
 
@@ -43,12 +42,12 @@ class MovePhotosRequest extends BaseApiRequest implements HasPhotos, HasAlbum
 	 */
 	protected function processValidatedValues(array $values, array $files): void
 	{
-		$this->photos = Photo::query()->findOrFail(
-			$values[HasPhotos::PHOTO_IDS_ATTRIBUTE]
-		);
-		$targetAlbumID = $values[HasAbstractAlbum::ALBUM_ID_ATTRIBUTE];
-		$this->album = empty($targetAlbumID) ?
-			null :
-			Album::query()->findOrFail($targetAlbumID);
+		/** @var array<int,string> $photosIss */
+		$photosIss = $values[RequestAttribute::PHOTO_IDS_ATTRIBUTE];
+		$this->photos = Photo::query()
+			->findOrFail($photosIss);
+		/** @var string|null */
+		$targetAlbumID = $values[RequestAttribute::ALBUM_ID_ATTRIBUTE];
+		$this->album = $targetAlbumID === null ? null : Album::query()->findOrFail($targetAlbumID);
 	}
 }

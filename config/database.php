@@ -18,6 +18,21 @@ return [
 
 	/*
 	|--------------------------------------------------------------------------
+	| Log DB SQL statements
+	|--------------------------------------------------------------------------
+	|
+	| If set to true, all SQL statements will be logged to a text file below
+	| storage.
+	| Only use it for debugging and development purposes as it slows down
+	| the performance of the application
+	|
+	*/
+
+	'db_log_sql' => (bool) env('DB_LOG_SQL', false),
+	'explain' => (bool) env('DB_LOG_SQL_EXPLAIN', false),
+
+	/*
+	|--------------------------------------------------------------------------
 	| Database Connections
 	|--------------------------------------------------------------------------
 	|
@@ -38,7 +53,7 @@ return [
 			'url' => env('DATABASE_URL'),
 			'database' => env('DB_DATABASE', database_path('database.sqlite')),
 			'prefix' => '',
-			'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
+			'foreign_key_constraints' => true,
 		],
 
 		'mysql' => [
@@ -66,7 +81,9 @@ return [
 			'engine' => 'InnoDB ROW_FORMAT=DYNAMIC',
 			'options' => extension_loaded('pdo_mysql') ? array_filter([
 				PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
-			]) : [],
+			],
+				fn ($elem) => ($elem !== null && $elem !== ''),
+			) : [],
 			// Ensure a deterministic SQL mode for MySQL/MariaDB.
 			// Don't rely on accidentally correct, system-wide settings of the
 			// DB service.
@@ -119,7 +136,7 @@ return [
 			'timezone' => 'UTC',
 			'prefix' => '',
 			'prefix_indexes' => true,
-			'schema' => 'public',
+			'search_path' => 'public',
 			'sslmode' => 'prefer',
 		],
 
@@ -162,14 +179,16 @@ return [
 	*/
 
 	'redis' => [
-		'client' => env('REDIS_CLIENT', 'phpredis'),
+		'client' => 'phpredis',
 
 		'options' => [
 			'cluster' => env('REDIS_CLUSTER', 'redis'),
-			'prefix' => env('REDIS_PREFIX', Str::slug(env('APP_NAME', 'laravel'), '_') . '_database_'),
+			'prefix' => env('REDIS_PREFIX', Str::slug((string) env('APP_NAME', 'Lychee'), '_') . '_database_'),
 		],
 
 		'default' => [
+			'scheme' => env('REDIS_SCHEME', 'tcp'),
+			'path' => env('REDIS_PATH', null),
 			'url' => env('REDIS_URL'),
 			'host' => env('REDIS_HOST', '127.0.0.1'),
 			'password' => env('REDIS_PASSWORD'),
@@ -178,6 +197,8 @@ return [
 		],
 
 		'cache' => [
+			'scheme' => env('REDIS_SCHEME', 'tcp'),
+			'path' => env('REDIS_PATH', null),
 			'url' => env('REDIS_URL'),
 			'host' => env('REDIS_HOST', '127.0.0.1'),
 			'password' => env('REDIS_PASSWORD', null),
@@ -185,4 +206,7 @@ return [
 			'database' => env('REDIS_CACHE_DB', '1'),
 		],
 	],
+
+	// Only list fk keys in debug mode.
+	'list_foreign_keys' => (bool) env('DB_LIST_FOREIGN_KEYS', false) && (bool) env('APP_DEBUG', false),
 ];

@@ -1,11 +1,19 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models\Extensions;
 
 use App\Exceptions\ExternalComponentMissingException;
 use App\Exceptions\Handler;
 use App\Exceptions\Internal\InvalidConfigOption;
 use App\Exceptions\Internal\QueryBuilderException;
+use App\Facades\Helpers;
+use function Safe\exec;
 
 trait ConfigsHas
 {
@@ -16,7 +24,7 @@ trait ConfigsHas
 	{
 		return
 			extension_loaded('imagick') &&
-			self::get_value('imagick', '1') == '1';
+			self::getValueAsBool('imagick');
 	}
 
 	/**
@@ -29,23 +37,35 @@ trait ConfigsHas
 		// 1: Exiftool is available
 		// 2: Not yet tested if exiftool is available
 
-		$has_exiftool = intval(self::get_value('has_exiftool', 2));
+		$has_exiftool = self::getValueAsInt('has_exiftool');
 
 		// value not yet set -> let's see if exiftool is available
 		if ($has_exiftool === 2) {
-			try {
-				$path = exec('command -v exiftool');
-			} catch (\Exception $e) {
-				$path = '';
-				Handler::reportSafely(new ExternalComponentMissingException('could not find exiftool; `has_exiftool` will be set to 0', $e));
+			if (Helpers::isExecAvailable()) {
+				try {
+					$cmd_output = exec('command -v exiftool');
+					// @codeCoverageIgnoreStart
+				} catch (\Exception $e) {
+					$cmd_output = false;
+					Handler::reportSafely(new ExternalComponentMissingException('could not find exiftool; `has_exiftool` will be set to 0', $e));
+				}
+				// @codeCoverageIgnoreEnd
+				$path = $cmd_output === false ? '' : $cmd_output;
+				$has_exiftool = $path === '' ? 0 : 1;
+			} else {
+				// @codeCoverageIgnoreStart
+				$has_exiftool = 0;
+				// @codeCoverageIgnoreEnd
 			}
-			$has_exiftool = empty($path) ? 0 : 1;
+
 			try {
 				self::set('has_exiftool', $has_exiftool);
+				// @codeCoverageIgnoreStart
 			} catch (InvalidConfigOption|QueryBuilderException $e) {
 				// If we could not save the detected setting, still proceed
 				Handler::reportSafely($e);
 			}
+			// @codeCoverageIgnoreEnd
 		}
 
 		return $has_exiftool === 1;
@@ -61,23 +81,35 @@ trait ConfigsHas
 		// 1: ffmpeg is available
 		// 2: Not yet tested if ffmpeg is available
 
-		$has_ffmpeg = intval(self::get_value('has_ffmpeg', 2));
+		$has_ffmpeg = self::getValueAsInt('has_ffmpeg');
 
 		// value not yet set -> let's see if ffmpeg is available
 		if ($has_ffmpeg === 2) {
-			try {
-				$path = exec('command -v ffmpeg');
-			} catch (\Exception $e) {
-				$path = '';
-				Handler::reportSafely(new ExternalComponentMissingException('could not find ffmpeg; `has_ffmpeg` will be set to 0', $e));
+			if (Helpers::isExecAvailable()) {
+				try {
+					$cmd_output = exec('command -v ffmpeg');
+					// @codeCoverageIgnoreStart
+				} catch (\Exception $e) {
+					$cmd_output = false;
+					Handler::reportSafely(new ExternalComponentMissingException('could not find ffmpeg; `has_ffmpeg` will be set to 0', $e));
+				}
+				// @codeCoverageIgnoreEnd
+				$path = $cmd_output === false ? '' : $cmd_output;
+				$has_ffmpeg = $path === '' ? 0 : 1;
+			} else {
+				// @codeCoverageIgnoreStart
+				$has_ffmpeg = 0;
+				// @codeCoverageIgnoreEnd
 			}
-			$has_ffmpeg = empty($path) ? 0 : 1;
+
 			try {
 				self::set('has_ffmpeg', $has_ffmpeg);
+				// @codeCoverageIgnoreStart
 			} catch (InvalidConfigOption|QueryBuilderException $e) {
 				// If we could not save the detected setting, still proceed
 				Handler::reportSafely($e);
 			}
+			// @codeCoverageIgnoreEnd
 		}
 
 		return $has_ffmpeg === 1;

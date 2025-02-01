@@ -1,8 +1,17 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Console\Commands;
 
+use App\Assets\Features;
 use App\Console\Commands\Utilities\Colorize;
+use App\Enum\SizeVariantType;
+use App\Enum\StorageDiskType;
 use App\Exceptions\UnexpectedException;
 use App\Models\Photo;
 use App\Models\SizeVariant;
@@ -10,7 +19,10 @@ use App\Models\SymLink;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Storage;
-use League\Flysystem\Adapter\Local as LocalFlysystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
+use function Safe\readlink;
+use function Safe\scandir;
+use function Safe\unlink;
 use Symfony\Component\Console\Exception\ExceptionInterface as SymfonyConsoleException;
 
 class Ghostbuster extends Command
@@ -25,7 +37,10 @@ class Ghostbuster extends Command
 	 *
 	 * @var string
 	 */
-	protected $signature = 'lychee:ghostbuster {removeDeadSymLinks=0 : Removes dead symlinks and the photos pointing to them} {removeZombiePhotos=0 : Removes photos pointing to non-existing files} {dryrun=1 : Dry Run default is True}';
+	protected $signature = 'lychee:ghostbuster
+	{--removeDeadSymLinks=0 : Removes dead symlinks and the photos pointing to them}
+	{--removeZombiePhotos=0 : Removes photos pointing to non-existing files}
+	{--dryrun=1 : Dry Run default is True}';
 
 	/**
 	 * The console command description.
@@ -51,19 +66,31 @@ class Ghostbuster extends Command
 	/**
 	 * Execute the console command.
 	 *
-	 * @return mixed
+	 * @return int
 	 */
 	public function handle(): int
 	{
 		try {
-			$removeDeadSymLinks = (bool) $this->argument('removeDeadSymLinks');
-			$removeZombiePhotos = (bool) $this->argument('removeZombiePhotos');
-			$dryrun = (bool) $this->argument('dryrun');
-			$uploadDisk = Storage::disk();
+			// The asymmetry in the three lines below regarding `=== true`
+			// and `!== false` is by intention for improved safety.
+			// `filter_var` is tri-state and returns `null` for an
+			//  unrecognized boolean value.
+			// In case of errors, i.e. in the `null` case, we want the first
+			// two to default to `false` and the third to default to `true`.
+			$removeDeadSymLinks = filter_var($this->option('removeDeadSymLinks'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
+			$removeZombiePhotos = filter_var($this->option('removeZombiePhotos'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === true;
+			$dryrun = filter_var($this->option('dryrun'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) !== false;
+			$uploadDisk = Features::active('use-s3')
+				? Storage::disk(StorageDiskType::S3->value)
+				: Storage::disk(StorageDiskType::LOCAL->value);
 			$symlinkDisk = Storage::disk(SymLink::DISK_NAME);
-			$isLocalDisk = ($uploadDisk->getDriver()->getAdapter() instanceof LocalFlysystem);
+			$isLocalDisk = $uploadDisk->getAdapter() instanceof LocalFilesystemAdapter;
 
 			$this->line('');
+			if (!$isLocalDisk) {
+				$this->line($this->col->red('Using non-local disk to store images, USE AT YOUR OWN RISKS! This code is not battle tested.'));
+				$this->line('');
+			}
 
 			if ($removeDeadSymLinks && !$isLocalDisk) {
 				$this->line($this->col->yellow('Removal of dead symlinks requested, but filesystem does not support symlinks.'));
@@ -72,7 +99,7 @@ class Ghostbuster extends Command
 				$removeDeadSymLinks = false;
 			}
 			if ($removeDeadSymLinks) {
-				$this->line('Also parsing database for pictures which point to non-existing files.');
+				$this->line('Also parsing database for photos with dead symbolic links.');
 				$this->line($this->col->yellow('This may modify the database.'));
 				$this->line('');
 			}
@@ -100,11 +127,11 @@ class Ghostbuster extends Command
 					$isDeadSymlink = is_link($fullPath) && !file_exists(readlink($fullPath));
 				}
 
-				/** @var Collection $sizeVariants */
+				/** @var Collection<int,Photo> $photos */
 				$photos = Photo::query()
 					->where('live_photo_short_path', '=', $filename)
 					->get();
-				/** @var Collection $sizeVariants */
+				/** @var Collection<int,SizeVariant> $sizeVariants */
 				$sizeVariants = SizeVariant::query()
 					->with('photo')
 					->where('short_path', '=', $filename)
@@ -153,20 +180,20 @@ class Ghostbuster extends Command
 					}
 					$totalDbEntries++;
 					if ($dryrun) {
-						$this->line(str_pad($filename, 50) . $this->col->red(' does not exist and photo would be removed') . '.');
+						$this->line(str_pad($sizeVariant->short_path, 50) . $this->col->red(' does not exist and photo would be removed') . '.');
 					} else {
-						if ($sizeVariant->type == SizeVariant::ORIGINAL) {
+						if ($sizeVariant->type === SizeVariantType::ORIGINAL) {
 							$sizeVariant->photo->delete();
 						} else {
 							$sizeVariant->delete();
 						}
-						$this->line(str_pad($filename, 50) . $this->col->red(' removed') . '.');
+						$this->line(str_pad($sizeVariant->short_path, 50) . $this->col->red(' removed') . '.');
 					}
 				}
 			}
 
 			$total = $totalDeadSymLinks + $totalFiles + $totalDbEntries;
-			if ($total == 0) {
+			if ($total === 0) {
 				$this->line($this->col->green('No pictures found to be deleted'));
 			}
 			if ($total > 0 && $dryrun) {
@@ -174,7 +201,7 @@ class Ghostbuster extends Command
 				$this->line($totalFiles . ' files would be deleted.');
 				$this->line($totalDbEntries . ' photos would be deleted or sanitized');
 				$this->line('');
-				$this->line("Rerun the command '" . $this->col->yellow('php artisan lychee:ghostbuster ' . ($removeDeadSymLinks ? '1' : '0') . ' ' . ($removeZombiePhotos ? '1' : '0') . ' 0') . "' to effectively remove the files.");
+				$this->line("Rerun the command '" . $this->col->yellow('php artisan lychee:ghostbuster --removeDeadSymLinks ' . ($removeDeadSymLinks ? '1' : '0') . ' --removeZombiePhotos ' . ($removeZombiePhotos ? '1' : '0') . ' --dryrun 0') . "' to effectively remove the files.");
 			}
 			if ($total > 0 && !$dryrun) {
 				$this->line($totalDeadSymLinks . ' dead symbolic links have been deleted.');

@@ -1,5 +1,24 @@
 <?php
 
+use Illuminate\Support\Facades\Facade;
+use function Safe\date;
+use function Safe\scandir;
+
+/**
+ * Given a .env config constant, retrieve the env value and remove any trailing /.
+ *
+ * @param string      $cst     constant to fetch
+ * @param string|null $default default value if does not exists
+ *
+ * @return string trimmed result
+ */
+if (!function_exists('renv')) {
+	function renv(string $cst, ?string $default = null): string
+	{
+		return rtrim((string) (env($cst, $default) ?? ''), '/');
+	}
+}
+
 return [
 	/*
 	|--------------------------------------------------------------------------
@@ -29,18 +48,6 @@ return [
 
 	/*
 	|--------------------------------------------------------------------------
-	| Application Environment
-	|--------------------------------------------------------------------------
-	|
-	| This value determines whether livewire front-end is enabled as it is
-	| currently under development.
-	|
-	*/
-
-	'livewire' => (bool) env('LIVEWIRE_ENABLED', false),
-
-	/*
-	|--------------------------------------------------------------------------
 	| Application Debug Mode
 	|--------------------------------------------------------------------------
 	|
@@ -61,11 +68,17 @@ return [
 	| the Artisan command line tool. You should set this to the root of
 	| your application so that it is used when running Artisan tasks.
 	|
+	| url : the base url of your Lychee install up to the tld (end '/' will be trimmed)
+	| dir_url : the path of your Lychee install from the tld (will be prefixed by '/' and end '/' will be trimmed)
+	|
+	| asset_url : should be left to default (null).
 	*/
 
-	'url' => env('APP_URL', 'http://localhost'),
+	'url' => renv('APP_URL', 'http://localhost'),
 
-	'asset_url' => env('ASSET_URL'),
+	'dir_url' => env('APP_DIR', '') === '' ? '' : ('/' . trim((string) (env('APP_DIR') ?? ''), '/')),
+
+	'asset_url' => null,
 
 	/*
 	|--------------------------------------------------------------------------
@@ -108,17 +121,37 @@ return [
 
 	/*
 	|--------------------------------------------------------------------------
-	| Log DB SQL statements
+	| Application Avilable Locale
 	|--------------------------------------------------------------------------
 	|
-	| If set to true, all SQL statements will be logged to a text file below
-	| storage.
-	| Only use it for debugging and development purposes as it slows down
-	| the performance of the application
+	| List of locale supported by Lychee.
+	| ['cz', 'de', 'el', 'en', 'es', 'fr', 'it', 'nl', 'no', 'pl', 'pt', 'ru', 'sk', 'sv', 'vi', 'zh_CN', 'zh_TW']
+	*/
+
+	'supported_locale' => array_diff(scandir(base_path('lang')), ['..', '.']),
+
+	/*
+	|--------------------------------------------------------------------------
+	| Faker Locale
+	|--------------------------------------------------------------------------
+	|
+	| This locale will be used by the Faker PHP library when generating fake
+	| data for your database seeds. For example, this will be used to get
+	| localized telephone numbers, street address information and more.
 	|
 	*/
 
-	'db_log_sql' => env('DB_LOG_SQL', false),
+	'faker_locale' => 'en_US',
+
+	/*
+	|--------------------------------------------------------------------------
+	| Skip diagnostics checks
+	|--------------------------------------------------------------------------
+	|
+	| Allows to define class names of diagnostics checks that will be skipped.
+	|
+	*/
+	'skip_diagnostics_checks' => explode(',', (string) env('SKIP_DIAGNOSTICS_CHECKS', '')),
 
 	/*
 	|--------------------------------------------------------------------------
@@ -134,6 +167,24 @@ return [
 	'key' => env('APP_KEY'),
 
 	'cipher' => env('APP_CIPHER', 'AES-256-CBC'),
+
+	/*
+	|--------------------------------------------------------------------------
+	| Maintenance Mode Driver
+	|--------------------------------------------------------------------------
+	|
+	| These configuration options determine the driver used to determine and
+	| manage Laravel's "maintenance mode" status. The "cache" driver will
+	| allow maintenance mode to be controlled across multiple machines.
+	|
+	| Supported drivers: "file", "cache"
+	|
+	*/
+
+	'maintenance' => [
+		'driver' => 'file',
+		// 'store'  => 'redis',
+	],
 
 	/*
 	|--------------------------------------------------------------------------
@@ -167,7 +218,6 @@ return [
 		Illuminate\Pipeline\PipelineServiceProvider::class,
 		Illuminate\Queue\QueueServiceProvider::class,
 		Illuminate\Redis\RedisServiceProvider::class,
-		// Illuminate\Auth\Passwords\PasswordResetServiceProvider::class,
 		Illuminate\Session\SessionServiceProvider::class,
 		Illuminate\Translation\TranslationServiceProvider::class,
 		Illuminate\Validation\ValidationServiceProvider::class,
@@ -177,18 +227,18 @@ return [
 		 * Package Service Providers...
 		 */
 
+		\SocialiteProviders\Manager\ServiceProvider::class,
 		// Barryvdh\Debugbar\ServiceProvider::class,
+		Mavinoo\Batch\BatchServiceProvider::class,
 
 		/*
 		 * Application Service Providers...
 		 */
 		App\Providers\AppServiceProvider::class,
 		App\Providers\AuthServiceProvider::class,
-		// App\Providers\BroadcastServiceProvider::class,
 		App\Providers\EventServiceProvider::class,
 		App\Providers\RouteServiceProvider::class,
-		// App\Providers\LangServiceProvider::class,
-		// App\Providers\AccessControlServiceProvider::class,
+		LycheeVerify\VerifyServiceProvider::class,
 	],
 
 	/*
@@ -202,46 +252,19 @@ return [
 	|
 	*/
 
-	'aliases' => [
-		'App' => Illuminate\Support\Facades\App::class,
-		'AccessControl' => App\Facades\AccessControl::class,
-		'Arr' => Illuminate\Support\Arr::class,
-		'Artisan' => Illuminate\Support\Facades\Artisan::class,
-		'Auth' => Illuminate\Support\Facades\Auth::class,
-		'Blade' => Illuminate\Support\Facades\Blade::class,
-		'Broadcast' => Illuminate\Support\Facades\Broadcast::class,
-		'Bus' => Illuminate\Support\Facades\Bus::class,
-		'Cache' => Illuminate\Support\Facades\Cache::class,
-		'Config' => Illuminate\Support\Facades\Config::class,
-		'Cookie' => Illuminate\Support\Facades\Cookie::class,
-		'Crypt' => Illuminate\Support\Facades\Crypt::class,
-		'DB' => Illuminate\Support\Facades\DB::class,
+	'aliases' => Facade::defaultAliases()->merge([
 		'DebugBar' => Barryvdh\Debugbar\Facades\Debugbar::class,
-		'Eloquent' => Illuminate\Database\Eloquent\Model::class,
-		'Event' => Illuminate\Support\Facades\Event::class,
-		'File' => Illuminate\Support\Facades\File::class,
-		'Gate' => Illuminate\Support\Facades\Gate::class,
-		'Hash' => Illuminate\Support\Facades\Hash::class,
-		'Http' => Illuminate\Support\Facades\Http::class,
-		// 'Lang' => Illuminate\Support\Facades\Lang::class,
 		'Helpers' => App\Facades\Helpers::class,
-		'Lang' => App\Facades\Lang::class,
-		'Log' => Illuminate\Support\Facades\Log::class,
-		'Mail' => Illuminate\Support\Facades\Mail::class,
-		'Notification' => Illuminate\Support\Facades\Notification::class,
-		// 'Password' => Illuminate\Support\Facades\Password::class,
-		'Queue' => Illuminate\Support\Facades\Queue::class,
-		'Redirect' => Illuminate\Support\Facades\Redirect::class,
-		'Redis' => Illuminate\Support\Facades\Redis::class,
-		'Request' => Illuminate\Support\Facades\Request::class,
-		'Response' => Illuminate\Support\Facades\Response::class,
-		'Route' => Illuminate\Support\Facades\Route::class,
-		'Schema' => Illuminate\Support\Facades\Schema::class,
-		'Session' => Illuminate\Support\Facades\Session::class,
-		'Storage' => Illuminate\Support\Facades\Storage::class,
-		'Str' => Illuminate\Support\Str::class,
-		'URL' => Illuminate\Support\Facades\URL::class,
-		'Validator' => Illuminate\Support\Facades\Validator::class,
-		'View' => Illuminate\Support\Facades\View::class,
-	],
+		'Features' => App\Assets\Features::class,
+		// Aliases for easier access in the blade templates
+		'Configs' => App\Models\Configs::class,
+		'AlbumPolicy' => App\Policies\AlbumPolicy::class,
+		'PhotoPolicy' => App\Policies\PhotoPolicy::class,
+		'SettingsPolicy' => App\Policies\SettingsPolicy::class,
+		'UserPolicy' => App\Policies\UserPolicy::class,
+		'User' => App\Models\User::class,
+		'SizeVariantType' => App\Enum\SizeVariantType::class,
+		'FileStatus' => App\Enum\FileStatus::class,
+		'PhotoLayoutType' => \App\Enum\PhotoLayoutType::class,
+	])->toArray(),
 ];

@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -31,14 +37,11 @@ use Illuminate\Support\Facades\Schema;
 // | checksum    | char(40)            | YES  |     | NULL    |       |
 // | medium      | tinyint(1)          | NO   |     | 0       |       |
 
-class CreatePhotosTable extends Migration
-{
+return new class() extends Migration {
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
 		Schema::dropIfExists('photos');
 		Schema::create('photos', function (Blueprint $table) {
@@ -81,11 +84,9 @@ class CreatePhotosTable extends Migration
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
 		Schema::dropIfExists('photos');
 	}
-}
+};

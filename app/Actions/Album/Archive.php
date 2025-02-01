@@ -1,20 +1,33 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\Album;
 
-use App\Contracts\AbstractAlbum;
+use App\Contracts\Models\AbstractAlbum;
+use App\Exceptions\ConfigurationKeyMissingException;
 use App\Exceptions\Handler;
 use App\Exceptions\Internal\FrameworkException;
-use App\Facades\AccessControl;
 use App\Models\Album;
 use App\Models\Configs;
-use App\Models\Extensions\BaseAlbum;
 use App\Models\Photo;
 use App\Models\TagAlbum;
+use App\Policies\AlbumPolicy;
+use App\Policies\PhotoPolicy;
 use App\SmartAlbums\BaseSmartAlbum;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
+use Safe\Exceptions\InfoException;
+use function Safe\ini_get;
+use function Safe\set_time_limit;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use ZipStream\CompressionMethod as ZipMethod;
 use ZipStream\Exception\FileNotFoundException;
 use ZipStream\Exception\FileNotReadableException;
 use ZipStream\ZipStream;
@@ -29,19 +42,34 @@ class Archive extends Action
 		'<', '>', ':', '"', '/', '\\', '|', '?', '*',
 	];
 
+	protected int $deflateLevel = -1;
+
 	/**
-	 * @param Collection<AbstractAlbum> $albums
+	 * @param Collection<int,AbstractAlbum> $albums
 	 *
 	 * @return StreamedResponse
 	 *
 	 * @throws FrameworkException
+	 * @throws ConfigurationKeyMissingException
 	 */
 	public function do(Collection $albums): StreamedResponse
 	{
+		// Issue #1950: Setting Model::shouldBeStrict(); in /app/Providers/AppServiceProvider.php breaks recursive album download.
+		//
+		// From my understanding it is because when we query an album with it's relations (photos & children),
+		// the relations of the children are not populated.
+		// As a result, when we try to query the picture list of those, it breaks.
+		// In that specific case, it is better to simply disable Model::shouldBeStrict() and eat the recursive SQL queries:
+		// for this specific case we must allow lazy loading.
+		Model::shouldBeStrict(false);
+
+		$this->deflateLevel = Configs::getValueAsInt('zip_deflate_level');
+
 		$responseGenerator = function () use ($albums) {
-			$options = new \ZipStream\Option\Archive();
-			$options->setEnableZip64(Configs::get_value('zip64', '1') === '1');
-			$zip = new ZipStream(null, $options);
+			$zip = new ZipStream(defaultCompressionMethod: $this->deflateLevel === -1 ? ZipMethod::STORE : ZipMethod::DEFLATE,
+				defaultDeflateLevel: $this->deflateLevel,
+				enableZip64: Configs::getValueAsBool('zip64'),
+				defaultEnableZeroHeader: true, sendHttpHeaders: false);
 
 			$usedDirNames = [];
 			foreach ($albums as $album) {
@@ -68,15 +96,21 @@ class Archive extends Action
 			$response->headers->set('Cache-Control', 'no-cache, no-store, must-revalidate');
 			$response->headers->set('Pragma', 'no-cache');
 			$response->headers->set('Expires', '0');
+			// @codeCoverageIgnoreStart
 		} catch (\InvalidArgumentException $e) {
 			throw new FrameworkException('Symfony\'s response component', $e);
 		}
+		// @codeCoverageIgnoreEnd
 
 		return $response;
 	}
 
 	/**
 	 * Create the title of the ZIP archive.
+	 *
+	 * @param Collection<int,AbstractAlbum> $albums
+	 *
+	 * @return string
 	 */
 	private static function createZipTitle(Collection $albums): string
 	{
@@ -98,7 +132,10 @@ class Archive extends Action
 	 */
 	private static function createValidTitle(string $title): string
 	{
-		return str_replace(self::BAD_CHARS, '', $title) ?? 'Untitled';
+		$validTitle = str_replace(self::BAD_CHARS, '', $title);
+		$validTitle = pathinfo($validTitle, PATHINFO_FILENAME);
+
+		return $validTitle !== '' ? $validTitle : 'Untitled';
 	}
 
 	/**
@@ -109,18 +146,18 @@ class Archive extends Action
 	 * input array `$used`.
 	 * The method adds the return value to `$used`.
 	 *
-	 * @param string $str  the input string which shall be made unique
-	 * @param array  $used an input array of previously used strings;
-	 *                     the output array will contain the result value
+	 * @param string        $str  the input string which shall be made unique
+	 * @param array<string> $used an input array of previously used strings;
+	 *                            the output array will contain the result value
 	 *
 	 * @return string the unique string
 	 */
 	private function makeUnique(string $str, array &$used): string
 	{
-		if (!empty($used)) {
+		if (count($used) > 0) {
 			$i = 1;
 			$tmp = $str;
-			while (in_array($tmp, $used)) {
+			while (in_array($tmp, $used, true)) {
 				$tmp = $str . '-' . $i;
 				$i++;
 			}
@@ -136,7 +173,7 @@ class Archive extends Action
 	 *
 	 * @param AbstractAlbum $album            the album which shall be added
 	 *                                        to the archive
-	 * @param array         $usedDirNames     the list of already used
+	 * @param array<string> $usedDirNames     the list of already used
 	 *                                        directory names on the same level
 	 *                                        as `$album`
 	 *                                        ("siblings" of `$album`)
@@ -149,12 +186,14 @@ class Archive extends Action
 	 */
 	private function compressAlbum(AbstractAlbum $album, array &$usedDirNames, ?string $fullNameOfParent, ZipStream $zip): void
 	{
-		if (!self::isArchivable($album)) {
+		$fullNameOfParent = $fullNameOfParent ?? '';
+
+		if (!Gate::check(AlbumPolicy::CAN_DOWNLOAD, [AbstractAlbum::class, $album])) {
 			return;
 		}
 
 		$fullNameOfDirectory = $this->makeUnique(self::createValidTitle($album->title), $usedDirNames);
-		if (!empty($fullNameOfParent)) {
+		if ($fullNameOfParent !== '') {
 			$fullNameOfDirectory = $fullNameOfParent . '/' . $fullNameOfDirectory;
 		}
 
@@ -167,11 +206,12 @@ class Archive extends Action
 			try {
 				// For photos in smart or tag albums, skip the ones that are not
 				// downloadable based on their actual parent album.  The test for
-				// album_id == null shouldn't really be needed as all such photos
+				// album_id === null shouldn't really be needed as all such photos
 				// in smart albums should be owned by the current user...
-				if (($album instanceof BaseSmartAlbum || $album instanceof TagAlbum) &&
-					!AccessControl::is_current_user_or_admin($photo->owner_id) &&
-					!($photo->album_id == null ? $album->is_downloadable : $photo->album->is_downloadable)) {
+				if (
+					($album instanceof BaseSmartAlbum || $album instanceof TagAlbum) &&
+					!Gate::check(PhotoPolicy::CAN_DOWNLOAD, $photo)
+				) {
 					continue;
 				}
 
@@ -182,8 +222,12 @@ class Archive extends Action
 				$fileName = $fullNameOfDirectory . '/' . $fileBaseName . $file->getExtension();
 
 				// Reset the execution timeout for every iteration.
-				set_time_limit(ini_get('max_execution_time'));
-				$zip->addFileFromStream($fileName, $file->read());
+				try {
+					set_time_limit(intval(ini_get('max_execution_time')));
+				} catch (InfoException) {
+					// Silently do nothing, if `set_time_limit` is denied.
+				}
+				$zip->addFileFromStream(fileName: $fileName, stream: $file->read(), comment: $photo->title, lastModificationDateTime: $photo->taken_at);
 				$file->close();
 			} catch (\Throwable $e) {
 				Handler::reportSafely($e);
@@ -203,20 +247,5 @@ class Archive extends Action
 				}
 			}
 		}
-	}
-
-	/**
-	 * Tests whether the given album may be archived by the current user.
-	 *
-	 * @param AbstractAlbum $album
-	 *
-	 * @return bool
-	 */
-	private static function isArchivable(AbstractAlbum $album): bool
-	{
-		return
-			$album->is_downloadable ||
-			($album instanceof BaseSmartAlbum && AccessControl::is_logged_in()) ||
-			($album instanceof BaseAlbum && AccessControl::is_current_user_or_admin($album->owner_id));
 	}
 }

@@ -1,22 +1,39 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models\Extensions;
 
-use App\DTO\AlbumSortingCriterion;
-use App\DTO\SortingCriterion;
+use App\Enum\ColumnSortingType;
+use App\Enum\OrderSortingType;
 use App\Exceptions\Internal\InvalidOrderDirectionException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
+/**
+ * @template TModelClass of \Illuminate\Database\Eloquent\Model
+ */
 class SortingDecorator
 {
 	public const POSTPONE_COLUMNS = [
-		SortingCriterion::COLUMN_TITLE,
-		SortingCriterion::COLUMN_DESCRIPTION,
+		ColumnSortingType::TITLE,
+		ColumnSortingType::DESCRIPTION,
 	];
 
+	/**
+	 * @var Builder<TModelClass>
+	 */
 	protected Builder $baseBuilder;
 
+	/**
+	 * @param Builder<TModelClass> $baseBuilder
+	 *
+	 * @return void
+	 */
 	public function __construct(Builder $baseBuilder)
 	{
 		$this->baseBuilder = $baseBuilder;
@@ -48,7 +65,7 @@ class SortingDecorator
 	 * The mixed case with some pre-sorting on the SQL layer and final sorting
 	 * on the software layer is more complicated.
 	 *
-	 * @var array{column: string, direction:string}[]
+	 * @var array<int,array{column:string,direction:string}>
 	 */
 	protected array $orderBy = [];
 
@@ -61,7 +78,7 @@ class SortingDecorator
 	 * Criteria between `$pivotIdx+1` ... `length-1` are sorted on the SQL
 	 * layer.
 	 *
-	 * If `$pivotIdx == -1`, then everything is sorted on the SQL layer.
+	 * If `$pivotIdx === -1`, then everything is sorted on the SQL layer.
 	 * `$pivotIdx` is only set to a different value, if a sorting criteria
 	 * which must be postponed (see {@link SortingDecorator::POSTPONE_COLUMNS})
 	 * is added.
@@ -73,35 +90,46 @@ class SortingDecorator
 	protected int $pivotIdx = -1;
 
 	/**
-	 * @param string $column    the column acc. to which the result shall be
-	 *                          sorted; must either be
-	 *                          {@link SortingCriterion::COLUMN_CREATED_AT},
-	 *                          {@link SortingCriterion::COLUMN_TITLE},
-	 *                          {@link SortingCriterion::COLUMN_DESCRIPTION},
-	 *                          {@link SortingCriterion::COLUMN_IS_PUBLIC},
-	 *                          {@link PhotoSortingCriterion::COLUMN_TAKEN_AT},
-	 *                          {@link PhotoSortingCriterion::COLUMN_IS_STARRED},
-	 *                          {@link PhotoSortingCriterion::COLUMN_TYPE},
-	 *                          {@link AlbumSortingCriterion::COLUMN_MIN_TAKEN_AT}, or
-	 *                          {@link AlbumSortingCriterion::COLUMN_MAX_TAKEN_AT}.
-	 * @param string $direction the order direction must be either
-	 *                          {@link SortingCriterion::ASC} or
-	 *                          {@link SortingCriterion::DESC}
+	 * @param ColumnSortingType $column    the column acc. to which the result shall be sorted
+	 * @param OrderSortingType  $direction the order direction
+	 *
+	 * @return SortingDecorator<TModelClass>
 	 *
 	 * @throws InvalidOrderDirectionException
 	 */
-	public function orderBy(string $column, string $direction = SortingCriterion::ASC): SortingDecorator
+	public function orderBy(ColumnSortingType $column, OrderSortingType $direction): SortingDecorator
 	{
-		$direction = strtolower($direction);
-		if (!in_array($direction, ['asc', 'desc'], true)) {
-			throw new InvalidOrderDirectionException();
-		}
 		$this->orderBy[] = [
-			'column' => $column,
-			'direction' => $direction,
+			'column' => $column->value,
+			'direction' => $direction->value,
 		];
 
-		if (in_array($column, self::POSTPONE_COLUMNS)) {
+		if (in_array($column, self::POSTPONE_COLUMNS, true)) {
+			$this->pivotIdx = sizeof($this->orderBy) - 1;
+		}
+
+		return $this;
+	}
+
+	/**
+	 * Some sorting are done at the photo level, however because we enforce more strictly the type on column
+	 * we are now prefixing the column by `photos.`.
+	 *
+	 * @param ColumnSortingType $column    the column acc. to which the result shall be sorted
+	 * @param OrderSortingType  $direction the order direction
+	 *
+	 * @return SortingDecorator<TModelClass>
+	 *
+	 * @throws InvalidOrderDirectionException
+	 */
+	public function orderPhotosBy(ColumnSortingType $column, OrderSortingType $direction): SortingDecorator
+	{
+		$this->orderBy[] = [
+			'column' => 'photos.' . $column->value,
+			'direction' => $direction->value,
+		];
+
+		if (in_array($column, self::POSTPONE_COLUMNS, true)) {
 			$this->pivotIdx = sizeof($this->orderBy) - 1;
 		}
 
@@ -113,7 +141,7 @@ class SortingDecorator
 	 *
 	 * @param string[] $columns
 	 *
-	 * @return Collection
+	 * @return Collection<int,TModelClass>
 	 *
 	 * @throws InvalidOrderDirectionException
 	 */
@@ -126,6 +154,7 @@ class SortingDecorator
 			for ($i = $this->pivotIdx + 1; $i < sizeof($this->orderBy); $i++) {
 				$this->baseBuilder->orderBy($this->orderBy[$i]['column'], $this->orderBy[$i]['direction']);
 			}
+			// @codeCoverageIgnoreStart
 		} catch (\InvalidArgumentException) {
 			// Sic! In theory, `\InvalidArgumentException` should be thrown
 			// if the *type* of argument differs from the expected type
@@ -136,18 +165,24 @@ class SortingDecorator
 			// direction does neither equal "asc" nor "desc".
 			throw new InvalidOrderDirectionException();
 		}
+		// @codeCoverageIgnoreEnd
 
-		/** @var Collection $result */
+		/** @var Collection<int,TModelClass> $result */
 		$result = $this->baseBuilder->get($columns);
 
 		// Sort with PHP for the remaining criteria in reverse order.
 		for ($i = $this->pivotIdx; $i >= 0; $i--) {
 			$column = $this->orderBy[$i]['column'];
-			$options = in_array($column, self::POSTPONE_COLUMNS) ? SORT_NATURAL | SORT_FLAG_CASE : SORT_REGULAR;
+
+			// This conversion is necessary
+			$columnSortingName = str_replace('photos.', '', $column);
+			$columnSortingType = ColumnSortingType::tryFrom($columnSortingName) ?? ColumnSortingType::CREATED_AT;
+
+			$options = in_array($columnSortingType, self::POSTPONE_COLUMNS, true) ? SORT_NATURAL | SORT_FLAG_CASE : SORT_REGULAR;
 			$result = $result->sortBy(
-				$column,
+				$columnSortingName,
 				$options,
-				$this->orderBy[$i]['direction'] === 'desc'
+				$this->orderBy[$i]['direction'] === OrderSortingType::DESC->value
 			)->values();
 		}
 

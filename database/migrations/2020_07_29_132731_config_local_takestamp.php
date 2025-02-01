@@ -1,37 +1,25 @@
 <?php
 
-use App\Models\Configs;
-use Illuminate\Database\Migrations\Migration;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-class ConfigLocalTakestamp extends Migration
-{
-	/**
-	 * Run the migrations.
-	 *
-	 * @return void
-	 */
-	public function up()
+use App\Legacy\BaseConfigMigration;
+
+return new class() extends BaseConfigMigration {
+	public function getConfigs(): array
 	{
-		defined('DISABLED') or define('DISABLED', '');
-
-		DB::table('configs')->insert([
+		return [
 			[
 				'key' => 'local_takestamp_video_formats',
 				'value' => '.avi|.mov',
 				'confidentiality' => '2',
 				'cat' => 'Image Processing',
-				'type_range' => DISABLED,
+				'type_range' => '',
+				'description' => '',
 			],
-		]);
+		];
 	}
-
-	/**
-	 * Reverse the migrations.
-	 *
-	 * @return void
-	 */
-	public function down()
-	{
-		Configs::where('key', '=', 'local_takestamp_video_formats')->delete();
-	}
-}
+};

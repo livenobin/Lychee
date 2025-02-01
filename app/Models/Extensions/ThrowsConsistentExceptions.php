@@ -1,9 +1,14 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models\Extensions;
 
 use App\Exceptions\ModelDBException;
-use Illuminate\Database\Eloquent\JsonEncodingException;
 use Illuminate\Support\Str;
 
 /**
@@ -23,6 +28,7 @@ trait ThrowsConsistentExceptions
 	protected function friendlyModelName(): string
 	{
 		$name = Str::snake(class_basename($this), ' ');
+
 		// Remove some typical, implementation-specific pre- and suffixes from the name
 		return str_replace('/(^abstract )|( impl$)|( interface$)/', '', $name);
 	}
@@ -43,7 +49,7 @@ trait ThrowsConsistentExceptions
 	abstract public function toArray();
 
 	/**
-	 * @param array $options
+	 * @param array<string,bool> $options
 	 *
 	 * @return bool always return true
 	 *
@@ -62,7 +68,7 @@ trait ThrowsConsistentExceptions
 		} catch (\Throwable $e) {
 			$parentException = $e;
 		}
-		if ($parentException) {
+		if ($parentException !== null) {
 			throw ModelDBException::create($this->friendlyModelName(), $this->wasRecentlyCreated ? 'creating' : 'updating', $parentException);
 		}
 
@@ -92,7 +98,7 @@ trait ThrowsConsistentExceptions
 		} catch (\Throwable $e) {
 			$parentException = $e;
 		}
-		if ($parentException) {
+		if ($parentException !== null) {
 			throw ModelDBException::create($this->friendlyModelName(), 'deleting', $parentException);
 		}
 
@@ -102,7 +108,7 @@ trait ThrowsConsistentExceptions
 	/**
 	 * Serializes this object into an array.
 	 *
-	 * @return array The serialized properties of this object
+	 * @return array<string,mixed> The serialized properties of this object
 	 *
 	 * @throws \JsonException
 	 *
@@ -114,38 +120,6 @@ trait ThrowsConsistentExceptions
 			return $this->toArray();
 		} catch (\Exception $e) {
 			throw new \JsonException(get_class($this) . '::toArray() failed', 0, $e);
-		}
-	}
-
-	/**
-	 * Convert the model instance to JSON.
-	 *
-	 * The error message is inspired by {@link JsonEncodingException::forModel()}.
-	 *
-	 * @param int $options
-	 *
-	 * @return string
-	 *
-	 * @throws JsonEncodingException
-	 */
-	public function toJson($options = 0): string
-	{
-		try {
-			// Note, we must not use the option `JSON_THROW_ON_ERROR` here,
-			// because this does not clear `json_last_error()` from any
-			// previous, stalled error message.
-			// But `\Illuminate\Http\JsonResponse::setData()` falsy assumes
-			// that this method does so.
-			// Hence, we call `json_encode` _without_ specifying
-			// `JSON_THROW_ON_ERROR` and then mimic that behaviour.
-			$json = json_encode($this->jsonSerialize(), $options);
-			if (json_last_error()) {
-				throw new \JsonException(json_last_error_msg(), json_last_error());
-			}
-
-			return $json;
-		} catch (\JsonException $e) {
-			throw new JsonEncodingException('Error encoding model [' . get_class($this) . '] to JSON', 0, $e);
 		}
 	}
 }

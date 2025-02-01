@@ -1,13 +1,20 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\Album;
 
-use App\DTO\AlbumProtectionPolicy;
 use App\Exceptions\Internal\FrameworkException;
 use App\Exceptions\InvalidPropertyException;
 use App\Exceptions\ModelDBException;
+use App\Http\Resources\Models\Utils\AlbumProtectionPolicy;
+use App\Models\AccessPermission;
 use App\Models\Extensions\BaseAlbum;
-use Illuminate\Contracts\Container\BindingResolutionException;
+use Illuminate\Support\Facades\Hash;
 
 /**
  * Class SetProtectionPolicy.
@@ -28,36 +35,38 @@ class SetProtectionPolicy extends Action
 	 */
 	public function do(BaseAlbum $album, AlbumProtectionPolicy $protectionPolicy, bool $shallSetPassword, ?string $password): void
 	{
-		$album->grants_full_photo = $protectionPolicy->grantsFullPhoto;
-		$album->is_public = $protectionPolicy->isPublic;
-		$album->requires_link = $protectionPolicy->requiresLink;
-		$album->is_nsfw = $protectionPolicy->isNSFW;
-		$album->is_downloadable = $protectionPolicy->isDownloadable;
-		$album->is_share_button_visible = $protectionPolicy->isShareButtonVisible;
+		$album->is_nsfw = $protectionPolicy->is_nsfw;
+		$album->save();
+
+		$active_permissions = $album->public_permissions();
+
+		if (!$protectionPolicy->is_public) {
+			$active_permissions?->delete();
+
+			return;
+		}
+
+		// Security attributes of the album itself independent of a particular user
+		$active_permissions ??= new AccessPermission();
+		$active_permissions->is_link_required = $protectionPolicy->is_link_required;
+		$active_permissions->grants_full_photo_access = $protectionPolicy->grants_full_photo_access;
+		$active_permissions->grants_download = $protectionPolicy->grants_download;
+		$active_permissions->base_album_id = $album->id;
+
+		// $album->public_permissions = $active_permissions;
 
 		// Set password if provided
 		if ($shallSetPassword) {
 			// password is provided => there is a change
 			if ($password !== null) {
 				// password is not null => we update the value with the hash
-				try {
-					$album->password = bcrypt($password);
-				} catch (\InvalidArgumentException $e) {
-					throw new InvalidPropertyException('Could not hash password', $e);
-				} catch (BindingResolutionException $e) {
-					throw new FrameworkException('Laravel\'s hashing component', $e);
-				}
+				$active_permissions->password = Hash::make($password);
 			} else {
 				// we remove the password
-				$album->password = null;
+				$active_permissions->password = null;
 			}
 		}
-
-		$album->save();
-
-		// Reset permissions for photos
-		if ($album->is_public) {
-			$album->photos()->update(['photos.is_public' => false]);
-		}
+		$active_permissions->base_album_id = $album->id;
+		$active_permissions->save();
 	}
 }

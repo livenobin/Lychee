@@ -1,0 +1,120 @@
+name: PHP Tests
+
+on:
+  workflow_call:
+    inputs:
+      test-suite:
+        required: true
+        type: string
+        description: 'The test suite to run'
+      env-file:
+        required: true
+        type: string
+        description: 'The env files to use'
+    secrets:
+      SONAR_TOKEN:
+        required: true
+        description: 'sonar token secret'
+      CODECOV_TOKEN: 
+        required: true
+        description: 'codecov token secret'
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    permissions:
+      contents: read  # for actions/checkout to fetch code
+      pull-requests: read  # for SonarSource/sonarcloud-github-action to determine which PR to decorate
+    name: ${{ matrix.php-version }} - ${{ matrix.sql-versions }} -- ${{ inputs.test-suite }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version:
+          # - 8.4
+          - 8.3
+        sql-versions:
+          - mariadb
+          - postgresql
+          - sqlite
+    # Service containers to run with `container-job`
+    services:
+      # Label used to access the service container
+      postgres:
+        # Docker Hub image
+        image: postgres
+        # Provide the password for postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+        # Set health checks to wait until postgres has started
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps tcp port 5432 on service container to the host
+          - 5432:5432
+    env:
+      extensions: bcmath, curl, dom, gd, imagick, json, libxml, mbstring, pcntl, pdo, pdo_sqlite, pdo_mysql, pdo_pgsql, pgsql, sqlite3, zip
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@cb605e52c26070c328afc4562f0b4ada7618a84e # v2.10.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set Up Imagick, FFmpeg & Exiftools
+        run: |
+          sudo apt-get update
+          sudo apt-get --fix-broken install
+          sudo apt-get -y install ffmpeg libimage-exiftool-perl
+
+      - name: setup Databases
+        run: |
+          sudo service mysql start
+          touch database/database.sqlite
+          mysql -uroot -proot -e 'create database homestead_test;'
+
+      - name: Setup PHP Action
+        uses: shivammathur/setup-php@9e72090525849c5e82e596468b86eb55e9cc5401 # 2.32.0
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: ${{ env.extensions }}
+          coverage: xdebug
+          tools: pecl, composer
+
+      - name: Install Composer dependencies
+        uses: ramsey/composer-install@57532f8be5bda426838819c5ee9afb8af389d51a # 3.0.0
+
+      - name: copy Env
+        run: |
+          cp .github/workflows/${{ inputs.env-file }}.${{ matrix.sql-versions }} .env
+
+      - name: Generate secure key & Optimize application & Migrate
+        run: |
+          php artisan key:generate
+          php artisan optimize
+          php artisan migrate
+
+      - name: Apply tests ${{ inputs.test-suite }}
+        run: XDEBUG_MODE=coverage vendor/bin/phpunit --configuration phpunit.ci.xml --testsuite ${{ inputs.test-suite }}
+
+      - name: Make sure we can go backward
+        run: php artisan migrate:rollback
+
+      - name: Codecov
+        uses: codecov/codecov-action@13ce06bfc6bbe3ecf90edbbf1bc32fe5978ca1d3 # v5.3.1
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: SonarCloud Scan
+        if: ${{ env.SONAR_TOKEN }}
+        uses: SonarSource/sonarqube-scan-action@bfd4e558cda28cda6b5defafb9232d191be8c203 # v4.2.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

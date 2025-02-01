@@ -1,28 +1,25 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Http\Requests\Album;
 
+use App\Contracts\Http\Requests\HasAlbum;
+use App\Contracts\Http\Requests\RequestAttribute;
 use App\Http\Requests\BaseApiRequest;
-use App\Http\Requests\Contracts\HasAbstractAlbum;
-use App\Http\Requests\Contracts\HasAlbum;
+use App\Http\Requests\Traits\Authorize\AuthorizeCanEditAlbumTrait;
 use App\Http\Requests\Traits\HasAlbumTrait;
 use App\Models\Album;
 use App\Rules\AlbumIDRule;
 
-/**
- * @implements HasAlbum<AbstractAlbum>
- */
 class DeleteTrackRequest extends BaseApiRequest implements HasAlbum
 {
 	use HasAlbumTrait;
-
-	/**
-	 * {@inheritDoc}
-	 */
-	public function authorize(): bool
-	{
-		return $this->authorizeAlbumWrite($this->album);
-	}
+	use AuthorizeCanEditAlbumTrait;
 
 	/**
 	 * {@inheritDoc}
@@ -30,7 +27,7 @@ class DeleteTrackRequest extends BaseApiRequest implements HasAlbum
 	public function rules(): array
 	{
 		return [
-			HasAbstractAlbum::ALBUM_ID_ATTRIBUTE => ['required', new AlbumIDRule(false)],
+			RequestAttribute::ALBUM_ID_ATTRIBUTE => ['required', new AlbumIDRule(false)],
 		];
 	}
 
@@ -39,6 +36,8 @@ class DeleteTrackRequest extends BaseApiRequest implements HasAlbum
 	 */
 	protected function processValidatedValues(array $values, array $files): void
 	{
-		$this->album = Album::query()->findOrFail($values[HasAbstractAlbum::ALBUM_ID_ATTRIBUTE]);
+		/** @var string|null */
+		$albumID = $values[RequestAttribute::ALBUM_ID_ATTRIBUTE];
+		$this->album = Album::query()->findOrFail($albumID);
 	}
 }

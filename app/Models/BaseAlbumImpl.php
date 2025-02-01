@@ -1,21 +1,34 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models;
 
-use App\Contracts\HasRandomID;
+use App\Constants\AccessPermissionConstants as APC;
+use App\Constants\RandomID;
+use App\Contracts\Models\HasRandomID;
 use App\DTO\PhotoSortingCriterion;
-use App\Facades\AccessControl;
-use App\Models\Extensions\HasAttributesPatch;
+use App\Enum\ColumnSortingType;
+use App\Enum\OrderSortingType;
+use App\Enum\PhotoLayoutType;
+use App\Enum\TimelinePhotoGranularity;
+use App\Models\Builders\BaseAlbumImplBuilder;
 use App\Models\Extensions\HasBidirectionalRelationships;
 use App\Models\Extensions\HasRandomIDAndLegacyTimeBasedID;
 use App\Models\Extensions\ThrowsConsistentExceptions;
-use App\Models\Extensions\UseFixedQueryBuilder;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Models\Extensions\UTCBasedTimes;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * Class BaseAlbumImpl.
@@ -76,46 +89,71 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * implementation depends on the specific sub-type of album and thus must
  * be implemented by the child classes.
  * For example, every album contains photos and thus must provide
- * {@link \App\Contracts\AbstractAlbum::$photos}, but the way how an album
+ * {@link \App\Contracts\Models\AbstractAlbum::$photos}, but the way how an album
  * defines its collection of photos is specific for the album.
  * Normally, a proper parent class would use abstract methods for these cases,
  * but this class is not a proper parent class (it just provides an
  * implementation of it) and we need this class to be instantiable.
  *
- * @property string                     $id
- * @property int                        $legacy_id
- * @property Carbon                     $created_at
- * @property Carbon                     $updated_at
- * @property string                     $title
- * @property string|null                $description
- * @property int                        $owner_id
- * @property User                       $owner
- * @property bool                       $is_public
- * @property bool                       $grants_full_photo
- * @property bool                       $requires_link
- * @property bool                       $is_downloadable
- * @property bool                       $is_share_button_visible
- * @property bool                       $is_nsfw
- * @property Collection                 $shared_with
- * @property string|null                $password
- * @property bool                       $has_password
- * @property PhotoSortingCriterion|null $sorting
+ * @property string                           $id
+ * @property int                              $legacy_id
+ * @property Carbon                           $created_at
+ * @property Carbon                           $updated_at
+ * @property string                           $title
+ * @property string|null                      $description
+ * @property PhotoLayoutType|null             $photo_layout
+ * @property TimelinePhotoGranularity         $photo_timeline
+ * @property int                              $owner_id
+ * @property User                             $owner
+ * @property bool                             $is_nsfw
+ * @property Collection                       $shared_with
+ * @property int|null                         $shared_with_count
+ * @property PhotoSortingCriterion|null       $photo_sorting
+ * @property string|null                      $sorting_col
+ * @property string|null                      $sorting_order
+ * @property Collection<int,AccessPermission> $access_permissions
+ * @property int|null                         $access_permissions_count
+ * @property string|null                      $copyright
+ *
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl addSelect($column)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl join(string $table, string $first, string $operator = null, string $second = null, string $type = 'inner', string $where = false)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl joinSub($query, $as, $first, $operator = null, $second = null, $type = 'inner', $where = false)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl leftJoin(string $table, string $first, string $operator = null, string $second = null)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl newModelQuery()
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl newQuery()
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl orderBy($column, $direction = 'asc')
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl query()
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl select($columns = [])
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereCreatedAt($value)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereDescription($value)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereId($value)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereIn(string $column, string $values, string $boolean = 'and', string $not = false)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereIsNsfw($value)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereLegacyId($value)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereNotIn(string $column, string $values, string $boolean = 'and')
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereOwnerId($value)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereSortingCol($value)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereSortingOrder($value)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereTitle($value)
+ * @method static BaseAlbumImplBuilder|BaseAlbumImpl whereUpdatedAt($value)
+ *
+ * @mixin \Eloquent
  */
 class BaseAlbumImpl extends Model implements HasRandomID
 {
-	use HasAttributesPatch;
+	/** @phpstan-use HasRandomIDAndLegacyTimeBasedID<BaseAlbumImpl> */
 	use HasRandomIDAndLegacyTimeBasedID;
 	use ThrowsConsistentExceptions;
 	use UTCBasedTimes;
 	use HasBidirectionalRelationships;
-	use UseFixedQueryBuilder;
+	use ToArrayThrowsNotImplemented;
 
 	protected $table = 'base_albums';
 
 	/**
 	 * @var string The type of the primary key
 	 */
-	protected $keyType = \App\Contracts\HasRandomID::ID_TYPE;
+	protected $keyType = RandomID::ID_TYPE;
 
 	/**
 	 * Indicates if the model's primary key is auto-incrementing.
@@ -133,152 +171,167 @@ class BaseAlbumImpl extends Model implements HasRandomID
 	 * only works properly, if it knows which attributes belong to the parent
 	 * class and which attributes belong to the child class.
 	 *
-	 * @var array
+	 * @var array<string, mixed>
 	 */
 	protected $attributes = [
 		'id' => null,
-		HasRandomID::LEGACY_ID_NAME => null,
+		RandomID::LEGACY_ID_NAME => null,
 		'created_at' => null,
 		'updated_at' => null,
 		'title' => null, // Sic! `title` is actually non-nullable, but using `null` here forces the caller to actually set a title before saving.
 		'description' => null,
 		'owner_id' => 0,
-		'is_public' => false,
-		'grants_full_photo' => true,
-		'requires_link' => false,
-		'is_downloadable' => false,
-		'is_share_button_visible' => false,
-		'is_nsfw' => false,
-		'password' => null,
 		'sorting_col' => null,
 		'sorting_order' => null,
+		'copyright' => null,
+		// Special visibility attributes
+		'is_nsfw' => false,
+		'photo_layout' => null,
 	];
 
+	/**
+	 * @var array<string, string>
+	 */
 	protected $casts = [
-		'id' => HasRandomID::ID_TYPE,
-		HasRandomID::LEGACY_ID_NAME => HasRandomID::LEGACY_ID_TYPE,
+		'id' => RandomID::ID_TYPE,
+		RandomID::LEGACY_ID_NAME => RandomID::LEGACY_ID_TYPE,
 		'created_at' => 'datetime',
 		'updated_at' => 'datetime',
-		'is_public' => 'boolean',
-		'requires_link' => 'boolean',
 		'is_nsfw' => 'boolean',
 		'owner_id' => 'integer',
-	];
-
-	/**
-	 * @var string[] The list of attributes which exist as columns of the DB
-	 *               relation but shall not be serialized to JSON
-	 */
-	protected $hidden = [
-		HasRandomID::LEGACY_ID_NAME,
-		'owner_id',
-		'owner',
-		'password',
-		'sorting_col',   // serialize DTO `order` instead
-		'sorting_order', // serialize DTO `order` instead
-	];
-
-	/**
-	 * @var string[] The list of "virtual" attributes which do not exist as
-	 *               columns of the DB relation but which shall be appended to
-	 *               JSON from accessors
-	 */
-	protected $appends = [
-		'has_password',
-		'sorting',
+		'photo_layout' => PhotoLayoutType::class,
 	];
 
 	/**
 	 * The relationships that should always be eagerly loaded by default.
 	 */
-	protected $with = ['owner'];
+	protected $with = ['owner', 'access_permissions'];
+
+	/**
+	 * @param $query
+	 *
+	 * @return BaseAlbumImplBuilder
+	 */
+	public function newEloquentBuilder($query): BaseAlbumImplBuilder
+	{
+		return new BaseAlbumImplBuilder($query);
+	}
 
 	/**
 	 * Returns the relationship between an album and its owner.
 	 *
-	 * @return BelongsTo
+	 * @return BelongsTo<User,$this>
 	 */
 	public function owner(): BelongsTo
 	{
-		return $this->belongsTo('App\Models\User', 'owner_id', 'id');
+		return $this->belongsTo(User::class, 'owner_id', 'id');
 	}
 
 	/**
 	 * Returns the relationship between an album and all users with whom
 	 * this album is shared.
 	 *
-	 * @return BelongsToMany
+	 * @return BelongsToMany<User,$this>
 	 */
 	public function shared_with(): BelongsToMany
 	{
 		return $this->belongsToMany(
-			'App\Models\User',
-			'user_base_album',
-			'base_album_id',
-			'user_id'
-		);
+			User::class,
+			APC::ACCESS_PERMISSIONS,
+			APC::BASE_ALBUM_ID,
+			APC::USER_ID
+		)->wherePivotNotNull('user_id');
 	}
 
-	protected function getGrantsFullPhotoAttribute(bool $value): bool
+	/**
+	 * Returns the relationship between an album and its associated permissions.
+	 *
+	 * @return hasMany<AccessPermission,$this>
+	 */
+	public function access_permissions(): hasMany
 	{
-		if ($this->is_public) {
-			return $value;
-		} else {
-			return Configs::get_value('full_photo', '1') === '1';
-		}
+		return $this->hasMany(AccessPermission::class, APC::BASE_ALBUM_ID, 'id');
 	}
 
-	protected function getIsDownloadableAttribute(bool $value): bool
+	/**
+	 * Returns the relationship between an album and its associated current user permissions.
+	 *
+	 * @return ?AccessPermission
+	 */
+	public function current_user_permissions(): AccessPermission|null
 	{
-		if ($this->is_public) {
-			return $value;
-		} else {
-			return Configs::get_value('downloadable', '0') === '1';
-		}
+		return $this->access_permissions->first(fn (AccessPermission $p) => $p->user_id !== null && $p->user_id === Auth::id());
 	}
 
-	protected function getIsShareButtonVisibleAttribute(bool $value): bool
+	/**
+	 * Returns the relationship between an album and its associated public permissions.
+	 *
+	 * @return ?AccessPermission
+	 */
+	public function public_permissions(): AccessPermission|null
 	{
-		if ($this->is_public) {
-			return $value;
-		} else {
-			return Configs::get_value('share_button_visible', '0') === '1';
-		}
+		return $this->access_permissions->first(fn (AccessPermission $p) => $p->user_id === null);
 	}
 
-	protected function getHasPasswordAttribute(): bool
-	{
-		return !empty($this->password);
-	}
-
-	protected function getSortingAttribute(): ?PhotoSortingCriterion
+	protected function getPhotoSortingAttribute(): ?PhotoSortingCriterion
 	{
 		$sortingColumn = $this->attributes['sorting_col'];
 		$sortingOrder = $this->attributes['sorting_order'];
 
-		return (empty($sortingColumn) || empty($sortingOrder)) ?
+		return ($sortingColumn === null || $sortingOrder === null) ?
 			null :
-			new PhotoSortingCriterion($sortingColumn, $sortingOrder);
+			new PhotoSortingCriterion(
+				ColumnSortingType::from($sortingColumn),
+				OrderSortingType::from($sortingOrder));
 	}
 
-	protected function setSortingAttribute(?PhotoSortingCriterion $sorting): void
+	protected function setPhotoSortingAttribute(?PhotoSortingCriterion $sorting): void
 	{
-		if ($sorting) {
-			$this->attributes['sorting_col'] = $sorting->column;
-			$this->attributes['sorting_order'] = $sorting->order;
-		} else {
-			$this->attributes['sorting_col'] = null;
-			$this->attributes['sorting_order'] = null;
-		}
+		$this->attributes['sorting_col'] = $sorting?->column->value;
+		$this->attributes['sorting_order'] = $sorting?->order->value;
 	}
 
-	public function toArray(): array
+	/**
+	 * Defines accessor for the Aspect Ratio.
+	 *
+	 * @return PhotoLayoutType|null
+	 */
+	protected function getPhotoLayoutAttribute(): ?PhotoLayoutType
 	{
-		$result = parent::toArray();
-		if (AccessControl::is_logged_in()) {
-			$result['owner_name'] = $this->owner->name();
-		}
+		return PhotoLayoutType::tryFrom($this->attributes['photo_layout']);
+	}
 
-		return $result;
+	/**
+	 * Defines setter for Aspect Ratio.
+	 *
+	 * @param PhotoLayoutType|null $aspectRatio
+	 *
+	 * @return void
+	 */
+	protected function setPhotoLayoutAttribute(?PhotoLayoutType $aspectRatio): void
+	{
+		$this->attributes['photo_layout'] = $aspectRatio?->value;
+	}
+
+	/**
+	 * Defines accessor for the Photo Timeline.
+	 *
+	 * @return TimelinePhotoGranularity|null
+	 */
+	protected function getPhotoTimelineAttribute(): ?TimelinePhotoGranularity
+	{
+		return TimelinePhotoGranularity::tryFrom($this->attributes['photo_timeline']);
+	}
+
+	/**
+	 * Defines setter for Photo Timeline.
+	 *
+	 * @param TimelinePhotoGranularity|null $photo_timeline
+	 *
+	 * @return void
+	 */
+	protected function setPhotoTimelineAttribute(?TimelinePhotoGranularity $photo_timeline): void
+	{
+		$this->attributes['photo_timeline'] = $photo_timeline?->value;
 	}
 }
