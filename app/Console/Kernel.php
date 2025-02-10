@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
@@ -10,14 +16,6 @@ use Symfony\Component\Finder\Exception\DirectoryNotFoundException;
 class Kernel extends ConsoleKernel
 {
 	/**
-	 * The Artisan commands provided by your application.
-	 *
-	 * @var array
-	 */
-	protected $commands = [
-	];
-
-	/**
 	 * Define the application's command schedule.
 	 *
 	 * @param Schedule $schedule
@@ -26,7 +24,7 @@ class Kernel extends ConsoleKernel
 	 *
 	 * @throws BindingResolutionException
 	 */
-	protected function schedule(Schedule $schedule)
+	protected function schedule(Schedule $schedule): void
 	{
 		$schedule->command('lychee:photos_added_notification')->weekly();
 	}
@@ -40,8 +38,12 @@ class Kernel extends ConsoleKernel
 	 * @throws \RuntimeException
 	 * @throws DirectoryNotFoundException
 	 */
-	protected function commands()
+	protected function commands(): void
 	{
 		$this->load(__DIR__ . '/Commands');
+		$this->load(__DIR__ . '/Commands/Laravel');
+		$this->load(__DIR__ . '/Commands/Legacy');
+		$this->load(__DIR__ . '/Commands/UserManagment');
+		$this->load(__DIR__ . '/Commands/ImageProcessing');
 	}
 }

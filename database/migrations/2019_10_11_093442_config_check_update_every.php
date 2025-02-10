@@ -1,40 +1,25 @@
 <?php
 
-/** @noinspection PhpUndefinedClassInspection */
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-use App\Models\Configs;
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
+use App\Legacy\BaseConfigMigration;
 
-class ConfigCheckUpdateEvery extends Migration
-{
-	/**
-	 * Run the migrations.
-	 *
-	 * @return void
-	 */
-	public function up()
+return new class() extends BaseConfigMigration {
+	public function getConfigs(): array
 	{
-		defined('INT') or define('INT', 'int');
-
-		DB::table('configs')->insert([
+		return [
 			[
 				'key' => 'update_check_every_days',
 				'value' => '3',
-				'confidentiality' => 2,
+				'confidentiality' => '2',
 				'cat' => 'Config',
-				'type_range' => INT,
+				'type_range' => self::INT,
+				'description' => '',
 			],
-		]);
+		];
 	}
-
-	/**
-	 * Reverse the migrations.
-	 *
-	 * @return void
-	 */
-	public function down()
-	{
-		Configs::where('key', '=', 'update_check_every_days')->delete();
-	}
-}
+};

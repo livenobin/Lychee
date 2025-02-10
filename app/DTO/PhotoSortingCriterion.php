@@ -1,35 +1,35 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\DTO;
 
+use App\Enum\ColumnSortingPhotoType;
+use App\Enum\ColumnSortingType;
+use App\Enum\OrderSortingType;
 use App\Models\Configs;
+use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
+#[TypeScript()]
 class PhotoSortingCriterion extends SortingCriterion
 {
-	public const COLUMN_TAKEN_AT = 'taken_at';
-	public const COLUMN_IS_STARRED = 'is_starred';
-	public const COLUMN_TYPE = 'type';
-
-	public const COLUMNS = [
-		SortingCriterion::COLUMN_CREATED_AT,
-		SortingCriterion::COLUMN_TITLE,
-		SortingCriterion::COLUMN_DESCRIPTION,
-		SortingCriterion::COLUMN_IS_PUBLIC,
-		self::COLUMN_TAKEN_AT,
-		self::COLUMN_IS_STARRED,
-		self::COLUMN_TYPE,
-	];
-
 	/**
-	 * @return static
-	 * @noinspection PhpDocMissingThrowsInspection
+	 * @return self
 	 */
 	public static function createDefault(): self
 	{
-		/* @noinspection PhpUnhandledExceptionInspection */
+		$columnSorting = Configs::getValueAsEnum('sorting_photos_col', ColumnSortingPhotoType::class);
+		$columnSorting = $columnSorting?->toColumnSortingType();
+
+		$orderSorting = Configs::getValueAsEnum('sorting_photos_order', OrderSortingType::class);
+
 		return new self(
-			Configs::get_value('sorting_photos_col', SortingCriterion::COLUMN_CREATED_AT),
-			Configs::get_value('sorting_photos_order', SortingCriterion::ASC)
+			$columnSorting ?? ColumnSortingType::CREATED_AT,
+			$orderSorting ?? OrderSortingType::ASC
 		);
 	}
 }

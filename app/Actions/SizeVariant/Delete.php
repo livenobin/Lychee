@@ -1,7 +1,14 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\SizeVariant;
 
+use App\Exceptions\Internal\LycheeAssertionError;
 use App\Exceptions\Internal\QueryBuilderException;
 use App\Exceptions\ModelDBException;
 use App\Image\FileDeleter;
@@ -45,7 +52,7 @@ class Delete
 	 * This object can (and must) be used to eventually delete the files,
 	 * however doing so can be deferred.
 	 *
-	 * @param string[] $svIDs the size variant IDs
+	 * @param int[] $svIDs the size variant IDs
 	 *
 	 * @return FileDeleter contains the collected files which became obsolete
 	 *
@@ -59,9 +66,9 @@ class Delete
 			// Get all short paths of size variants which are going to be deleted.
 			// But exclude those short paths which are duplicated by a size
 			// variant which is not going to be deleted.
-			$svShortPaths = SizeVariant::query()
+			$sizeVariants = SizeVariant::query()
 				->from('size_variants as sv')
-				->select(['sv.short_path'])
+				->select(['sv.short_path', 'sv.storage_disk'])
 				->leftJoin('size_variants as dup', function (JoinClause $join) use ($svIDs) {
 					$join
 						->on('dup.short_path', '=', 'sv.short_path')
@@ -69,8 +76,8 @@ class Delete
 				})
 				->whereIn('sv.id', $svIDs)
 				->whereNull('dup.id')
-				->pluck('sv.short_path');
-			$fileDeleter->addRegularFilesOrSymbolicLinks($svShortPaths);
+				->get();
+			$fileDeleter->addSizeVariants($sizeVariants);
 
 			// Get all short paths of symbolic links which point to size variants
 			// which are going to be deleted
@@ -89,10 +96,12 @@ class Delete
 				->delete();
 
 			return $fileDeleter;
+			// @codeCoverageIgnoreStart
 		} catch (QueryBuilderException $e) {
 			throw ModelDBException::create('size variants', 'deleting', $e);
 		} catch (\InvalidArgumentException $e) {
-			assert(false, new \AssertionError('\InvalidArgumentException must not be thrown', $e->getCode(), $e));
+			throw LycheeAssertionError::createFromUnexpectedException($e);
 		}
+		// @codeCoverageIgnoreEnd
 	}
 }

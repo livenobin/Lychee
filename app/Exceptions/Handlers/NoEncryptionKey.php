@@ -1,13 +1,18 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Exceptions\Handlers;
 
-use App\Contracts\HttpExceptionHandler;
-use App\Redirections\ToInstall;
+use App\Contracts\Exceptions\Handlers\HttpExceptionHandler;
+use App\Http\Redirections\ToInstall;
 use Illuminate\Encryption\MissingAppKeyException;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface as HttpException;
-use Throwable;
 
 /**
  * Class NoEncryptionKey.
@@ -36,16 +41,16 @@ class NoEncryptionKey implements HttpExceptionHandler
 	public function renderHttpException(SymfonyResponse $defaultResponse, HttpException $e): SymfonyResponse
 	{
 		try {
-			touch(base_path('.NO_SECURE_KEY'));
 			$redirectResponse = ToInstall::go();
 			$contentType = $defaultResponse->headers->get('Content-Type');
-			if (!empty($contentType)) {
+			if ($contentType !== null && $contentType !== '') {
 				$redirectResponse->headers->set('Content-Type', $contentType);
-				$redirectResponse->setContent($defaultResponse->getContent());
+				$content = $defaultResponse->getContent();
+				$redirectResponse->setContent($content !== false ? $content : null);
 			}
 
 			return $redirectResponse;
-		} catch (Throwable) {
+		} catch (\Throwable) {
 			return $defaultResponse;
 		}
 	}

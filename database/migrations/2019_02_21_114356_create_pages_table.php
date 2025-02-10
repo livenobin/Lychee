@@ -1,19 +1,21 @@
 <?php
 
-/** @noinspection PhpUndefinedClassInspection */
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-class CreatePagesTable extends Migration
-{
+return new class() extends Migration {
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
 		Schema::dropIfExists('pages');
 		Schema::create('pages', function (Blueprint $table) {
@@ -28,22 +30,6 @@ class CreatePagesTable extends Migration
 		});
 
 		DB::table('pages')->insert([
-			//			[
-			//				'title'      => 'contact',
-			//				'menu_title' => 'contact',
-			//				'in_menu'    => true,
-			//				'link'       => '/contact',
-			//				'enabled'    => true,
-			//				'order'      => 0
-			//			],
-			//			[
-			//				'title'      => 'about',
-			//				'menu_title' => 'about',
-			//				'in_menu'    => true,
-			//				'link'       => '/about',
-			//				'enabled'    => true,
-			//				'order'      => 1
-			//			],
 			[
 				'title' => 'gallery',
 				'menu_title' => 'gallery',
@@ -52,24 +38,14 @@ class CreatePagesTable extends Migration
 				'enabled' => true,
 				'order' => 2,
 			],
-			//			[
-			//				'title'      => 'portfolio',
-			//				'menu_title' => 'portfolio',
-			//				'in_menu'    => true,
-			//				'link'       => '/portfolio',
-			//				'enabled'    => true,
-			//				'order'      => 3
-			//			],
 		]);
 	}
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
 		Schema::dropIfExists('pages');
 	}
-}
+};

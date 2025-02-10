@@ -1,31 +1,65 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\Search;
 
-use App\Actions\PhotoAuthorisationProvider;
-use App\Contracts\InternalLycheeException;
+use App\Contracts\Exceptions\InternalLycheeException;
 use App\DTO\PhotoSortingCriterion;
-use App\Models\Extensions\FixedQueryBuilder;
+use App\Eloquent\FixedQueryBuilder;
+use App\Models\Album;
+use App\Models\Configs;
 use App\Models\Extensions\SortingDecorator;
 use App\Models\Photo;
+use App\Policies\PhotoQueryPolicy;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
 class PhotoSearch
 {
-	protected PhotoAuthorisationProvider $photoAuthorisationProvider;
+	protected PhotoQueryPolicy $photoQueryPolicy;
 
-	public function __construct(PhotoAuthorisationProvider $photoAuthorisationProvider)
+	public function __construct(PhotoQueryPolicy $photoQueryPolicy)
 	{
-		$this->photoAuthorisationProvider = $photoAuthorisationProvider;
+		$this->photoQueryPolicy = $photoQueryPolicy;
 	}
 
 	/**
+	 * Apply search directly.
+	 *
+	 * @param array<int,string> $terms
+	 *
+	 * @return Collection<int,Photo> photos
+	 *
 	 * @throws InternalLycheeException
 	 */
 	public function query(array $terms): Collection
 	{
-		$query = $this->photoAuthorisationProvider->applySearchabilityFilter(
-			Photo::with(['album', 'size_variants', 'size_variants.sym_links'])
+		$query = $this->sqlQuery($terms);
+		$sorting = PhotoSortingCriterion::createDefault();
+
+		return (new SortingDecorator($query))
+			->orderBy($sorting->column, $sorting->order)->get();
+	}
+
+	/**
+	 * Create the query manually.
+	 *
+	 * @param array<int,string> $terms
+	 * @param Album|null        $album the optional top album which is used as a search base
+	 *
+	 * @return FixedQueryBuilder<Photo>
+	 */
+	public function sqlQuery(array $terms, ?Album $album = null): Builder
+	{
+		$query = $this->photoQueryPolicy->applySearchabilityFilter(
+			query: Photo::query()->with(['album', 'size_variants', 'size_variants.sym_links']),
+			origin: $album,
+			include_nsfw: !Configs::getValueAsBool('hide_nsfw_in_search')
 		);
 
 		foreach ($terms as $term) {
@@ -40,10 +74,6 @@ class PhotoSearch
 			);
 		}
 
-		$sorting = PhotoSortingCriterion::createDefault();
-
-		return (new SortingDecorator($query))
-			->orderBy($sorting->column, $sorting->order)
-			->get();
+		return $query;
 	}
 }

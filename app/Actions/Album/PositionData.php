@@ -1,22 +1,29 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\Album;
 
-use App\Contracts\AbstractAlbum;
-use App\DTO\PositionData as PositionDataDTO;
+use App\Contracts\Models\AbstractAlbum;
+use App\Enum\SizeVariantType;
+use App\Http\Resources\Collections\PositionDataResource;
 use App\Models\Album;
-use App\Models\SizeVariant;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PositionData extends Action
 {
-	public function get(AbstractAlbum $album, bool $includeSubAlbums = false): PositionDataDTO
+	public function get(AbstractAlbum $album, bool $includeSubAlbums = false): PositionDataResource
 	{
 		$photoRelation = ($album instanceof Album && $includeSubAlbums) ?
 			$album->all_photos() :
 			$album->photos();
 
+		// @phpstan-ignore-next-line
 		$photoRelation
 			->with([
 				'album' => function (BelongsTo $b) {
@@ -33,13 +40,13 @@ class PositionData extends Action
 					// this really helps, if you want to show thousands
 					// of photos on a map, as there are up to 7 size
 					// variants per photo
-					$r->whereBetween('type', [SizeVariant::SMALL2X, SizeVariant::THUMB]);
+					$r->whereBetween('type', [SizeVariantType::SMALL2X, SizeVariantType::THUMB]);
 				},
 				'size_variants.sym_links',
 			])
 			->whereNotNull('latitude')
 			->whereNotNull('longitude');
 
-		return new PositionDataDTO($album->id, $album->title, $photoRelation->get(), $album instanceof Album ? $album->track_url : null);
+		return new PositionDataResource($album->id, $album->title, $photoRelation->get(), $album instanceof Album ? $album->track_url : null);
 	}
 }

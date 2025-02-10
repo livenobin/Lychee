@@ -1,10 +1,16 @@
 <?php
 
-use Doctrine\DBAL\Exception as DBALException;
-use Doctrine\DBAL\Schema\AbstractSchemaManager;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+
+require_once 'TemporaryModels/OptimizeTables.php';
 
 /**
  * Class AddIndexForDelete.
@@ -13,20 +19,15 @@ use Illuminate\Support\Facades\Schema;
  * size variants which can be safely deleted without breaking shared use of
  * the media file by a duplicate.
  */
-class AddIndexForDelete extends Migration
-{
-	private AbstractSchemaManager $schemaManager;
+return new class() extends Migration {
+	private OptimizeTables $optimize;
 
-	/**
-	 * @throws DBALException
-	 */
 	public function __construct()
 	{
-		$connection = Schema::connection(null)->getConnection();
-		$this->schemaManager = $connection->getDoctrineSchemaManager();
+		$this->optimize = new OptimizeTables();
 	}
 
-	public function up()
+	public function up(): void
 	{
 		Schema::table('size_variants', function (Blueprint $table) {
 			// This index is required by \App\Actions\SizeVariant\Delete::do()
@@ -35,26 +36,10 @@ class AddIndexForDelete extends Migration
 		});
 	}
 
-	public function down()
+	public function down(): void
 	{
 		Schema::table('size_variants', function (Blueprint $table) {
-			$this->dropIndexIfExists($table, 'size_variants_short_path_index');
+			$this->optimize->dropIndexIfExists($table, 'size_variants_short_path_index');
 		});
 	}
-
-	/**
-	 * A helper function that allows to drop an index if exists.
-	 *
-	 * @param Blueprint $table
-	 * @param string    $indexName
-	 *
-	 * @throws DBALException
-	 */
-	private function dropIndexIfExists(Blueprint $table, string $indexName)
-	{
-		$doctrineTable = $this->schemaManager->listTableDetails($table->getTable());
-		if ($doctrineTable->hasIndex($indexName)) {
-			$table->dropIndex($indexName);
-		}
-	}
-}
+};

@@ -1,27 +1,28 @@
 <?php
 
-use App\Models\Configs;
-use Illuminate\Database\Migrations\Migration;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-class BumpVersion extends Migration
-{
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
+
+return new class() extends Migration {
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
-		Configs::where('key', 'version')->update(['value' => '040001']);
+		DB::table('configs')->where('key', 'version')->update(['value' => '040001']);
 	}
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
-		Configs::where('key', 'version')->update(['value' => '040000']);
+		DB::table('configs')->where('key', 'version')->update(['value' => '040000']);
 	}
-}
+};

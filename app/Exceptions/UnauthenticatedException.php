@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Exceptions;
 
 use Symfony\Component\HttpFoundation\Response;
@@ -14,11 +20,11 @@ use Symfony\Component\HttpFoundation\Response;
  * Side remark: If one really wants to express that a user is unauthorized,
  * the suitable HTTP Status Code would equal 403 (Forbidden).
  */
-class UnauthenticatedException extends LycheeBaseException
+class UnauthenticatedException extends BaseLycheeException
 {
 	public const DEFAULT_MESSAGE = 'User is not authenticated';
 
-	public function __construct(string $msg = self::DEFAULT_MESSAGE, \Throwable $previous = null)
+	public function __construct(string $msg = self::DEFAULT_MESSAGE, ?\Throwable $previous = null)
 	{
 		parent::__construct(Response::HTTP_UNAUTHORIZED, $msg, $previous);
 	}

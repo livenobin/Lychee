@@ -1,37 +1,46 @@
 <?php
 
-use App\Models\Configs;
-use Illuminate\Database\Migrations\Migration;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-class FrameRefreshInSec extends Migration
-{
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
+
+return new class() extends Migration {
 	/**
 	 * Run the migrations.
 	 *
-	 * @return void
+	 * @throws InvalidArgumentException
 	 */
-	public function up()
+	public function up(): void
 	{
-		Configs::where('key', 'Mod_Frame_refresh')
-			->update(
-				[
-					'value' => Configs::get_value('Mod_Frame_refresh') / 1000,
-				]
-			);
+		$value = DB::table('configs')
+			->where('key', '=', 'Mod_Frame_refresh')
+			->value('value');
+		if (is_numeric($value)) {
+			DB::table('configs')
+				->where('key', '=', 'Mod_Frame_refresh')
+				->update(['value' => strval(intval(floatval($value) / 1000.0))]);
+		}
 	}
 
 	/**
 	 * Reverse the migrations.
 	 *
-	 * @return void
+	 * @throws InvalidArgumentException
 	 */
-	public function down()
+	public function down(): void
 	{
-		Configs::where('key', 'Mod_Frame_refresh')
-			->update(
-				[
-					'value' => Configs::get_value('Mod_Frame_refresh') * 1000,
-				]
-			);
+		$value = DB::table('configs')
+			->where('key', '=', 'Mod_Frame_refresh')
+			->value('value');
+		if (is_numeric($value)) {
+			DB::table('configs')
+				->where('key', '=', 'Mod_Frame_refresh')
+				->update(['value' => strval(intval(floatval($value) * 1000.0))]);
+		}
 	}
-}
+};

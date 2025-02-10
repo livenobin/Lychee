@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Notifications;
 
 use App\Models\Photo;
@@ -27,7 +33,7 @@ class PhotoAdded extends Notification
 	 *
 	 * @param mixed $notifiable
 	 *
-	 * @return array
+	 * @return array<string>
 	 */
 	public function via($notifiable)
 	{
@@ -39,7 +45,7 @@ class PhotoAdded extends Notification
 	 *
 	 * @param mixed $notifiable
 	 *
-	 * @return array
+	 * @return array<string,string>
 	 */
 	public function toArray($notifiable)
 	{

@@ -1,25 +1,41 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Relations;
 
-use App\Actions\AlbumAuthorisationProvider;
-use App\Actions\PhotoAuthorisationProvider;
 use App\DTO\PhotoSortingCriterion;
-use App\Facades\AccessControl;
+use App\Eloquent\FixedQueryBuilder;
+use App\Enum\ColumnSortingPhotoType;
+use App\Enum\OrderSortingType;
 use App\Models\Album;
 use App\Models\Extensions\Thumb;
 use App\Models\Photo;
+use App\Policies\AlbumPolicy;
+use App\Policies\AlbumQueryPolicy;
+use App\Policies\PhotoQueryPolicy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as BaseBuilder;
-use Illuminate\Database\Query\JoinClause;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 
+/**
+ * @mixin Builder<Photo>
+ *
+ * @extends Relation<Photo,Album,Thumb|null>
+ *
+ * @disregard P1037
+ */
 class HasAlbumThumb extends Relation
 {
-	protected AlbumAuthorisationProvider $albumAuthorisationProvider;
-	protected PhotoAuthorisationProvider $photoAuthorisationProvider;
+	protected AlbumQueryPolicy $albumQueryPolicy;
+	protected PhotoQueryPolicy $photoQueryPolicy;
 	protected PhotoSortingCriterion $sorting;
 
 	public function __construct(Album $parent)
@@ -28,13 +44,29 @@ class HasAlbumThumb extends Relation
 		// the parent constructor.
 		// The parent constructor calls `addConstraints` and thus our own
 		// attributes must be initialized by then
-		$this->albumAuthorisationProvider = resolve(AlbumAuthorisationProvider::class);
-		$this->photoAuthorisationProvider = resolve(PhotoAuthorisationProvider::class);
+		$this->albumQueryPolicy = resolve(AlbumQueryPolicy::class);
+		$this->photoQueryPolicy = resolve(PhotoQueryPolicy::class);
 		$this->sorting = PhotoSortingCriterion::createDefault();
 		parent::__construct(
-			Photo::query()->with(['size_variants' => fn (HasMany $r) => Thumb::sizeVariantsFilter($r)]),
+			Photo::query()->with(['size_variants' => (fn ($r) => Thumb::sizeVariantsFilter($r))]),
 			$parent
 		);
+	}
+
+	/**
+	 * @return FixedQueryBuilder<Photo>
+	 */
+	protected function getRelationQuery(): FixedQueryBuilder
+	{
+		/**
+		 * We know that the internal query is of type `FixedQueryBuilder`,
+		 * because it was set in the constructor as `Photo::query()`.
+		 *
+		 * @noinspection PhpIncompatibleReturnTypeInspection
+		 *
+		 * @phpstan-ignore-next-line
+		 */
+		return $this->query;
 	}
 
 	/**
@@ -50,11 +82,14 @@ class HasAlbumThumb extends Relation
 		if (static::$constraints) {
 			/** @var Album $album */
 			$album = $this->parent;
-			if ($album->cover_id) {
+			if ($album->cover_id !== null) {
 				$this->where('photos.id', '=', $album->cover_id);
 			} else {
-				$this->photoAuthorisationProvider
-					->applySearchabilityFilter($this->query, $album);
+				$this->photoQueryPolicy
+					->applySearchabilityFilter(
+						query: $this->getRelationQuery(),
+						origin: $album,
+						include_nsfw: $album->is_nsfw);
 			}
 		}
 	}
@@ -95,7 +130,7 @@ class HasAlbumThumb extends Relation
 	 *     ON (
 	 *       albums._lft >= covered_albums._lft AND
 	 *       albums._rgt <= covered_albums._rgt AND
-	 *       "complicated seachability filter goes here"
+	 *       "complicated searchability filter goes here"
 	 *     )
 	 *     WHERE covered_albums.id IN $albumKeys
 	 *     ORDER BY album_id ASC, photos.is_starred DESC, photos.created_at DESC
@@ -158,12 +193,13 @@ class HasAlbumThumb extends Relation
 			->join('albums', 'albums.id', '=', 'photos.album_id')
 			->whereColumn('albums._lft', '>=', 'covered_albums._lft')
 			->whereColumn('albums._rgt', '<=', 'covered_albums._rgt')
-			->orderBy('photos.is_starred', 'desc')
-			->orderBy('photos.' . $this->sorting->column, $this->sorting->order)
+			->orderBy('photos.' . ColumnSortingPhotoType::IS_STARRED->value, OrderSortingType::DESC->value)
+			->orderBy('photos.' . $this->sorting->column->value, $this->sorting->order->value)
 			->limit(1);
-		if (!AccessControl::is_admin()) {
+
+		if (Auth::user()?->may_administrate !== true) {
 			$bestPhotoIDSelect->where(function (Builder $query2) {
-				$this->photoAuthorisationProvider->appendSearchabilityConditions(
+				$this->photoQueryPolicy->appendSearchabilityConditions(
 					$query2->getQuery(),
 					'covered_albums._lft',
 					'covered_albums._rgt'
@@ -171,32 +207,27 @@ class HasAlbumThumb extends Relation
 			});
 		}
 
-		$userID = AccessControl::is_logged_in() ? AccessControl::id() : null;
-
-		$album2Cover = function (BaseBuilder $builder) use ($bestPhotoIDSelect, $albumKeys, $userID) {
+		$album2Cover = function (BaseBuilder $builder) use ($bestPhotoIDSelect, $albumKeys) {
 			$builder
 				->from('albums as covered_albums')
 				->join('base_albums', 'base_albums.id', '=', 'covered_albums.id');
-			if ($userID !== null) {
-				$builder->leftJoin('user_base_album',
-					function (JoinClause $join) use ($userID) {
-						$join
-							->on('user_base_album.base_album_id', '=', 'base_albums.id')
-							->where('user_base_album.user_id', '=', $userID);
-					}
-				);
-			}
+
+			$this->albumQueryPolicy->joinSubComputedAccessPermissions(
+				query: $builder,
+				second: 'base_albums.id'
+			);
+
 			$builder->select(['covered_albums.id AS album_id'])
 				->addSelect(['photo_id' => $bestPhotoIDSelect])
 				->whereIn('covered_albums.id', $albumKeys);
-			if (!AccessControl::is_admin()) {
+			if (Auth::user()?->may_administrate !== true) {
 				$builder->where(function (BaseBuilder $q) {
-					$this->albumAuthorisationProvider->appendAccessibilityConditions($q);
+					$this->albumQueryPolicy->appendAccessibilityConditions($q);
 				});
 			}
 		};
 
-		$this->query
+		$this->getRelationQuery()
 			->select([
 				'covers.id as id',
 				'covers.type as type',
@@ -212,10 +243,10 @@ class HasAlbumThumb extends Relation
 	}
 
 	/**
-	 * @param array<Album> $models   an array of albums models whose thumbnails shall be initialized
-	 * @param string       $relation the name of the relation from the parent to the child models
+	 * @param array<int,Album> $models   an array of albums models whose thumbnails shall be initialized
+	 * @param string           $relation the name of the relation from the parent to the child models
 	 *
-	 * @return array the array of album models
+	 * @return array<int,Album> the array of album models
 	 */
 	public function initRelation(array $models, $relation): array
 	{
@@ -229,15 +260,16 @@ class HasAlbumThumb extends Relation
 	/**
 	 * Match the eagerly loaded results to their parents.
 	 *
-	 * @param array<Album>      $models   an array of parent models
-	 * @param Collection<Photo> $results  the unified collection of all child models of all parent models
-	 * @param string            $relation the name of the relation from the parent to the child models
+	 * @param array<int,Album>      $models   an array of parent models
+	 * @param Collection<int,Photo> $results  the unified collection of all child models of all parent models
+	 * @param string                $relation the name of the relation from the parent to the child models
 	 *
-	 * @return array
+	 * @return array<int,Album>
 	 */
 	public function match(array $models, Collection $results, $relation): array
 	{
 		$dictionary = $results->mapToDictionary(function ($result) {
+			/** @phpstan-ignore-next-line undefied property */
 			return [$result->covered_album_id => $result];
 		})->all();
 
@@ -247,7 +279,7 @@ class HasAlbumThumb extends Relation
 		/** @var Album $album */
 		foreach ($models as $album) {
 			$albumID = $album->id;
-			if ($album->cover_id) {
+			if ($album->cover_id !== null) {
 				// We do not execute a query, if `cover_id` is set, because
 				// `Album`always eagerly loads its cover and hence, we already
 				// have it.
@@ -267,9 +299,9 @@ class HasAlbumThumb extends Relation
 
 	public function getResults(): ?Thumb
 	{
-		/** @var Album $album */
+		/** @var Album|null $album */
 		$album = $this->parent;
-		if ($album === null || !$this->albumAuthorisationProvider->isAccessible($album)) {
+		if ($album === null || !Gate::check(AlbumPolicy::CAN_ACCESS, $album)) {
 			return null;
 		}
 
@@ -277,11 +309,12 @@ class HasAlbumThumb extends Relation
 		// is always eagerly loaded with its cover and hence, we already
 		// have it.
 		// See {@link Album::with}
-		if ($album->cover_id) {
+		if ($album->cover_id !== null) {
 			return Thumb::createFromPhoto($album->cover);
 		} else {
 			return Thumb::createFromQueryable(
-				$this->query, $this->sorting
+				$this->getRelationQuery(),
+				$this->sorting
 			);
 		}
 	}

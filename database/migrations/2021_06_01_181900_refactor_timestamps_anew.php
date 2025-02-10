@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
@@ -7,8 +13,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-class RefactorTimestampsAnew extends Migration
-{
+return new class() extends Migration {
 	private const SQL_TIMEZONE_NAME = 'UTC';
 	private const SQL_DATETIME_FORMAT = 'Y-m-d H:i:s';
 	private const ID_COL_NAME = 'id';
@@ -58,7 +63,7 @@ class RefactorTimestampsAnew extends Migration
 	/**
 	 * Run the migration.
 	 */
-	public function up()
+	public function up(): void
 	{
 		try {
 			$this->fixPagesTable();
@@ -74,7 +79,7 @@ class RefactorTimestampsAnew extends Migration
 	/**
 	 * Reverse the migration.
 	 */
-	public function down()
+	public function down(): void
 	{
 		try {
 			$this->downgradeORMSystemTimes();
@@ -485,7 +490,7 @@ class RefactorTimestampsAnew extends Migration
 			->where(self::CONFIG_KEY_COL_NAME, '=', $key)
 			->first();
 
-		return $config->{self::CONFIG_VALUE_COL_NAME};
+		return $config?->{self::CONFIG_VALUE_COL_NAME} ?? '';
 	}
 
 	/**
@@ -512,9 +517,9 @@ class RefactorTimestampsAnew extends Migration
 	 * If the current value of the configuration option is not included in
 	 * $map, then the value is not altered.
 	 *
-	 * @param string $key   the key (aka name) of the configuration option
-	 * @param array  $map   a mapping from old-to-new configuration values
-	 * @param string $range the new range for the configuration option
+	 * @param string               $key   the key (aka name) of the configuration option
+	 * @param array<string,string> $map   a mapping from old-to-new configuration values
+	 * @param string               $range the new range for the configuration option
 	 */
 	protected function convertConfiguration(string $key, array $map, string $range): void
 	{
@@ -534,15 +539,13 @@ class RefactorTimestampsAnew extends Migration
 	protected function needsConversion(): bool
 	{
 		$dbConnType = Config::get('database.default');
-		switch ($dbConnType) {
-			case 'mysql':
-				return false;
-			case 'sqlite':
-			case 'pgsql':
-				return true;
-			default:
-				// What is about sqlsrv? Is this actually used?
-				throw new InvalidArgumentException('Unsupported DB system: ' . $dbConnType);
-		}
+
+		return match ($dbConnType) {
+			'mysql' => false,
+			'sqlite',
+			'pgsql' => true,
+			// What is about sqlsrv? Is this actually used?
+			default => throw new InvalidArgumentException('Unsupported DB system: ' . $dbConnType),
+		};
 	}
-}
+};

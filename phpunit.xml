@@ -1,38 +1,55 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<phpunit  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          backupGlobals="false"
-          backupStaticAttributes="false"
-          bootstrap="vendor/autoload.php"
-          colors="true"
-          convertErrorsToExceptions="true"
-          convertNoticesToExceptions="true"
-          convertWarningsToExceptions="true"
-          processIsolation="false"
-          stopOnFailure="false"
-          verbose="true"
-          xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.3/phpunit.xsd">
-  <coverage processUncoveredFiles="true">
-    <include>
-      <directory suffix=".php">./app</directory>
-    </include>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" bootstrap="vendor/autoload.php" colors="true" processIsolation="false" stopOnFailure="false" xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.1/phpunit.xsd">
+  <coverage>
     <report>
       <clover outputFile="clover.xml"/>
       <text outputFile="php://stdout" showUncoveredFiles="false"/>
     </report>
   </coverage>
   <testsuites>
-    <testsuite name="Feature">
-      <directory suffix="Test.php">./tests/Feature</directory>
+    <testsuite name="Unit">
+      <directory suffix="Test.php">./tests/Unit</directory>
+    </testsuite>
+    <testsuite name="Feature_v1">
+      <directory suffix="Test.php">./tests/Feature_v1</directory>
+      <exclude>./tests/Feature_v1/Base/BasePhotoTest.php</exclude>
+      <exclude>./tests/Feature_v1/Base/BasePhotosRotateTest.php</exclude>
+      <exclude>./tests/Feature_v1/Base/BaseSharingTest.php</exclude>
+      <exclude>./tests/Feature_v1/LibUnitTests/AlbumsUnitTest.php</exclude>
+      <exclude>./tests/Feature_v1/LibUnitTests/PhotosUnitTest.php</exclude>
+      <exclude>./tests/Feature_v1/LibUnitTests/RootAlbumUnitTest.php</exclude>
+      <exclude>./tests/Feature_v1/LibUnitTests/SessionUnitTest.php</exclude>
+      <exclude>./tests/Feature_v1/LibUnitTests/SharingUnitTest.php</exclude>
+      <exclude>./tests/Feature_v1/LibUnitTests/UsersUnitTest.php</exclude>
+    </testsuite>
+    <testsuite name="Feature_v2">
+      <directory suffix="Test.php">./tests/Feature_v2</directory>
+      <exclude>./tests/Feature_v2/Base/BaseApiV2Test.php</exclude>
+      <exclude>./tests/Feature_v2/Base/BaseV2Test.php</exclude>
     </testsuite>
   </testsuites>
+  <extensions>
+    <bootstrap class="Tests\BootExtension"/>
+  </extensions>
   <logging/>
   <php>
     <env name="APP_ENV" value="testing"/>
-    <env name="DB_LOG_SQL" value="true"/>
+    <env name="LYCHEE_UPLOADS_DIR" value="uploads/"/>
+    <env name="DB_CONNECTION" value="sqlite"/>
+    <env name="DB_DATABASE" value="database/database.sqlite"/>
+    <env name="DB_LOG_SQL" value="false"/>
+    <env name="DB_LOG_SQL_EXPLAIN" value="false"/>
     <env name="BCRYPT_ROUNDS" value="4"/>
     <env name="CACHE_DRIVER" value="array"/>
     <env name="SESSION_DRIVER" value="array"/>
-    <env name="QUEUE_DRIVER" value="sync"/>
+    <env name="QUEUE_CONNECTION" value="sync"/>
     <env name="MAIL_DRIVER" value="array"/>
   </php>
+  <source>
+    <include>
+      <directory suffix=".php">
+        ./app
+      </directory>
+    </include>
+  </source>
 </phpunit>

@@ -1,18 +1,24 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Http\Requests\Traits;
 
 use App\Models\Album;
 
 trait HasParentAlbumTrait
 {
-	protected ?Album $parentAlbum = null;
+	protected ?Album $parent_album = null;
 
 	/**
 	 * @return Album|null
 	 */
-	public function parentAlbum(): ?Album
+	public function parent_album(): ?Album
 	{
-		return $this->parentAlbum;
+		return $this->parent_album;
 	}
 }

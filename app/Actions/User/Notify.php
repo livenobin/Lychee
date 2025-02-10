@@ -1,35 +1,57 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\User;
 
-use App\Facades\AccessControl;
+use App\Exceptions\ConfigurationKeyMissingException;
+use App\Exceptions\Internal\QueryBuilderException;
 use App\Models\Configs;
 use App\Models\Photo;
 use App\Models\User;
 use App\Notifications\PhotoAdded;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\MultipleRecordsFoundException;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Notification;
 
 class Notify
 {
+	/**
+	 * Notify users that a new photo has been uploaded.
+	 *
+	 * @param Photo $photo
+	 *
+	 * @return void
+	 *
+	 * @throws ConfigurationKeyMissingException
+	 * @throws QueryBuilderException
+	 * @throws ModelNotFoundException
+	 * @throws MultipleRecordsFoundException
+	 */
 	public function do(Photo $photo): void
 	{
-		if (Configs::get_Value('new_photos_notification', '0') !== '1') {
+		if (!Configs::getValueAsBool('new_photos_notification')) {
 			return;
 		}
 
-		// The admin is always informed
-		$users = new Collection([User::query()->find(0)]);
+		// Admin user is always notified
+		$users = User::query()->where('may_administrate', '=', true)->get();
+
 		$album = $photo->album;
-		if ($album) {
-			$users->push($album->shared_with);
+		if ($album !== null) {
+			$users = $users->concat($album->shared_with);
 			$users->push($album->owner);
 		}
 
 		$users = $users
 			->unique('id', true)
 			->whereNotNull('email')
-			->where('id', '!=', AccessControl::id());
+			->where('id', '!=', Auth::id());
 
 		Notification::send($users, new PhotoAdded($photo));
 	}
