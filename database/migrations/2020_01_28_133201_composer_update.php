@@ -1,40 +1,25 @@
 <?php
 
-/** @noinspection PhpUndefinedClassInspection */
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-use App\Models\Configs;
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
+use App\Legacy\BaseConfigMigration;
 
-class ComposerUpdate extends Migration
-{
-	/**
-	 * Run the migrations.
-	 *
-	 * @return void
-	 */
-	public function up()
+return new class() extends BaseConfigMigration {
+	public function getConfigs(): array
 	{
-		defined('BOOL') or define('BOOL', '0|1');
-
-		DB::table('configs')->insert([
+		return [
 			[
 				'key' => 'apply_composer_update',
 				'value' => '0',
 				'confidentiality' => '3',
 				'cat' => 'Admin',
-				'type_range' => BOOL,
+				'type_range' => self::BOOL,
+				'description' => '',
 			],
-		]);
+		];
 	}
-
-	/**
-	 * Reverse the migrations.
-	 *
-	 * @return void
-	 */
-	public function down()
-	{
-		Configs::where('key', '=', 'apply_composer_update')->delete();
-	}
-}
+};

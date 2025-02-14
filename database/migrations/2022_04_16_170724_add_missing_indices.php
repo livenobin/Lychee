@@ -1,16 +1,22 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 use Doctrine\DBAL\Exception as DBALException;
-use Doctrine\DBAL\Schema\AbstractSchemaManager;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-class AddMissingIndices extends Migration
-{
-	private AbstractSchemaManager $schemaManager;
+require_once 'TemporaryModels/OptimizeTables.php';
+
+return new class() extends Migration {
 	private string $driverName;
+	private OptimizeTables $optimize;
 
 	/**
 	 * @throws DBALException
@@ -18,55 +24,42 @@ class AddMissingIndices extends Migration
 	public function __construct()
 	{
 		$connection = Schema::connection(null)->getConnection();
-		$this->schemaManager = $connection->getDoctrineSchemaManager();
 		$this->driverName = $connection->getDriverName();
+		$this->optimize = new OptimizeTables();
 	}
 
-	public function up()
+	public function up(): void
 	{
-		// MySQL cannot create indices over unlimited string values
-		// So we must explicitly define an upper bound on how many characters
-		// are analyzed for sorting
-		$descriptionSQL = match ($this->driverName) {
-			'mysql' => DB::raw('description(128)'),
-			default => 'description',
-		};
-
-		Schema::table('photos', function (Blueprint $table) use ($descriptionSQL) {
+		Schema::table('photos', function (Blueprint $table) {
 			// These indices are needed to efficiently retrieve the covers of
 			// albums acc. to different sorting criteria
 			// Note, that covers are always sorted acc. to `is_starred` first.
 			$table->index(['album_id', 'is_starred', 'title']);
-			$table->index(['album_id', 'is_starred', $descriptionSQL]);
+
+			// In the case of mysql we apply the RAW query below.
+			if ($this->driverName !== 'mysql') {
+				$table->index(['album_id', 'is_starred', 'description']);
+			}
 		});
+
+		// MySQL cannot create indices over unlimited string values
+		// So we must explicitly define an upper bound on how many characters
+		// are analyzed for sorting
+		if ($this->driverName === 'mysql') {
+			DB::statement('alter table `photos` add index `photos_album_id_is_starred_description(128)_index`(album_id, is_starred, description(128))');
+		}
 	}
 
-	public function down()
+	public function down(): void
 	{
 		$descriptionSQL = match ($this->driverName) {
-			'mysql' => DB::raw('description(128)'),
+			'mysql' => 'description(128)',
 			default => 'description',
 		};
 
 		Schema::table('photos', function (Blueprint $table) use ($descriptionSQL) {
-			$this->dropIndexIfExists($table, 'photos_album_id_is_starred_title_index');
-			$this->dropIndexIfExists($table, 'photos_album_id_is_starred_' . $descriptionSQL . '_index');
+			$this->optimize->dropIndexIfExists($table, 'photos_album_id_is_starred_title_index');
+			$this->optimize->dropIndexIfExists($table, 'photos_album_id_is_starred_' . $descriptionSQL . '_index');
 		});
 	}
-
-	/**
-	 * A helper function that allows to drop an index if exists.
-	 *
-	 * @param Blueprint $table
-	 * @param string    $indexName
-	 *
-	 * @throws DBALException
-	 */
-	private function dropIndexIfExists(Blueprint $table, string $indexName)
-	{
-		$doctrineTable = $this->schemaManager->listTableDetails($table->getTable());
-		if ($doctrineTable->hasIndex($indexName)) {
-			$table->dropIndex($indexName);
-		}
-	}
-}
+};

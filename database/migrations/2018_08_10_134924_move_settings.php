@@ -1,23 +1,25 @@
 <?php
 
-use App\Models\Configs;
-use App\Models\Logs;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
-class MoveSettings extends Migration
-{
+return new class() extends Migration {
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
 		// this test is to make sure this is not executed when we passed a certain migration point
 		if (Schema::hasTable(env('DB_OLD_LYCHEE_PREFIX', '') . 'lychee_settings')) {
-			if (Configs::where('key', '=', 'check_for_updates')->count() == 0) {
+			if (DB::table('configs')->where('key', '=', 'check_for_updates')->count() === 0) {
 				$results = DB::table(env('DB_OLD_LYCHEE_PREFIX', '') . 'lychee_settings')->select('*')->orderBy('key', 'asc')->get();
 
 				foreach ($results as $result) {
@@ -53,29 +55,27 @@ class MoveSettings extends Migration
 					| version             | update_030216                                                |
 					+---------------------+--------------------------------------------------------------+
 					*/
-					if (in_array($result->key, ['sortingAlbums', 'sortingPhotos'])) {
+					if (in_array($result->key, ['sortingAlbums', 'sortingPhotos'], true)) {
 						$order_by = explode(' ', $result->value);
-						Configs::where('key', '=', $result->key . '_col')->update(['value' => $order_by[2] ?? 'id']);
-						Configs::where('key', '=', $result->key . '_order')->update(['value' => $order_by[3] ?? 'DESC']);
-					} elseif (!in_array($result->key, ['checkForUpdates', 'hide_version_number', 'identifier', 'php_script_limit', 'plugins', 'public_search', 'useExiftool', 'version'])) {
-						Configs::where('key', '=', $result->key)->update(['value' => $result->value ?? '']);
+						DB::table('configs')->where('key', '=', $result->key . '_col')->update(['value' => $order_by[2] ?? 'id']);
+						DB::table('configs')->where('key', '=', $result->key . '_order')->update(['value' => $order_by[3] ?? 'DESC']);
+					} elseif (!in_array($result->key, ['checkForUpdates', 'hide_version_number', 'identifier', 'php_script_limit', 'plugins', 'public_search', 'useExiftool', 'version'], true)) {
+						DB::table('configs')->where('key', '=', $result->key)->update(['value' => $result->value ?? '']);
 					}
 				}
 			} else {
-				Logs::notice(__METHOD__, __LINE__, 'We are already passed migration point, ' . __CLASS__ . ' will not be applied.');
+				Log::notice(__METHOD__ . ':' . __LINE__ . ' We are already passed migration point, ' . __CLASS__ . ' will not be applied.');
 			}
 		} else {
-			Logs::notice(__FUNCTION__, __LINE__, env('DB_OLD_LYCHEE_PREFIX', '') . 'lychee_settings does not exist!');
+			Log::notice(__FUNCTION__ . ':' . __LINE__ . ' ' . env('DB_OLD_LYCHEE_PREFIX', '') . 'lychee_settings does not exist!');
 		}
 	}
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
-		Logs::warning(__METHOD__, __LINE__, 'There is no going back for ' . __CLASS__ . '! HUE HUE HUE');
+		Log::warning(__METHOD__ . ':' . __LINE__ . ' There is no going back for ' . __CLASS__ . '! HUE HUE HUE');
 	}
-}
+};

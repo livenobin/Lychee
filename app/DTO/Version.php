@@ -1,20 +1,22 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\DTO;
 
 use App\Exceptions\Internal\LycheeInvalidArgumentException;
 
-class Version extends DTO
+class Version extends ArrayableDTO
 {
-	public int $major;
-	public int $minor;
-	public int $patch;
-
-	public function __construct(int $major, int $minor, int $patch)
-	{
-		$this->major = $major;
-		$this->minor = $minor;
-		$this->patch = $patch;
+	public function __construct(
+		public int $major,
+		public int $minor,
+		public int $patch,
+	) {
 	}
 
 	/**
@@ -29,7 +31,7 @@ class Version extends DTO
 	 *
 	 * @param int $version the version represented as a single integer
 	 *
-	 * @return static
+	 * @return self
 	 *
 	 * @throws LycheeInvalidArgumentException
 	 */
@@ -39,7 +41,7 @@ class Version extends DTO
 			throw new LycheeInvalidArgumentException('unexpected version value');
 		}
 
-		return new self($version / 10000, ($version % 10000) / 100, $version % 100);
+		return new self(intdiv($version, 10000), intdiv($version % 10000, 100), $version % 100);
 	}
 
 	/**
@@ -65,6 +67,9 @@ class Version extends DTO
 		$exploded = explode('.', $version);
 		if (count($exploded) === 3) {
 			return new self(intval($exploded[0]), intval($exploded[1]), intval($exploded[2]));
+		}
+		if (strlen($version) === 5) {
+			$version = '0' . $version;
 		}
 		if (strlen($version) === 6) {
 			$exploded = str_split($version, 2);
@@ -95,17 +100,5 @@ class Version extends DTO
 	public function __toString(): string
 	{
 		return $this->major . '.' . $this->minor . '.' . $this->patch;
-	}
-
-	/**
-	 * {@inheritDoc}
-	 */
-	public function toArray(): array
-	{
-		return [
-			'major' => $this->major,
-			'minor' => $this->minor,
-			'patch' => $this->patch,
-		];
 	}
 }

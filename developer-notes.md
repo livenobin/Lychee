@@ -3,7 +3,7 @@
 This guide contains some tricks and "do"s and "don't"s for new developer.
 In particular, it highlights some pitfalls one can easily trap into.
 
-# TLTR for the Impatient
+# TL;DR for the Impatient
 
  1. If you create a new Eloquent model, use the trait
     `\App\Models\Extensions\UTCBasedTimes`.
@@ -133,3 +133,19 @@ With respect to functional behaviour, we have two "broken" mappings that should 
 This means only the methods `timestamp_tz` and `datetime` are usable in a DB-independent manner.
 Also, the convenient method `timestamps` must not be used.
 Taking into account the conclusion from above, the Lychee Application only uses `Blueprint::datetime`, because it shows identical behaviour for each DBMS and has no year-2038-problem on MySQL.
+
+
+### Responses types
+
+To generate proper responses types, we use Spatie Data + Spatie Typescript.
+
+Create a new resource and add the attribute `#[TypeScript()]` from `use Spatie\TypeScriptTransformer\Attributes\TypeScript;`
+
+Generate the types with:
+```sh
+php artisan typescript:transform
+```
+
+### Language translations
+
+We use https://github.com/xiCO2k/laravel-vue-i18n

@@ -1,33 +1,35 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\DTO;
 
+use App\Enum\ColumnSortingAlbumType;
+use App\Enum\ColumnSortingType;
+use App\Enum\OrderSortingType;
 use App\Models\Configs;
+use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
+#[TypeScript()]
 class AlbumSortingCriterion extends SortingCriterion
 {
-	public const COLUMN_MIN_TAKEN_AT = 'min_taken_at';
-	public const COLUMN_MAX_TAKEN_AT = 'max_taken_at';
-
-	public const COLUMNS = [
-		SortingCriterion::COLUMN_CREATED_AT,
-		SortingCriterion::COLUMN_TITLE,
-		SortingCriterion::COLUMN_DESCRIPTION,
-		SortingCriterion::COLUMN_IS_PUBLIC,
-		self::COLUMN_MIN_TAKEN_AT,
-		self::COLUMN_MAX_TAKEN_AT,
-	];
-
 	/**
-	 * @return static
-	 * @noinspection PhpDocMissingThrowsInspection
+	 * @return self
 	 */
 	public static function createDefault(): self
 	{
-		/* @noinspection PhpUnhandledExceptionInspection */
+		$columnSorting = Configs::getValueAsEnum('sorting_albums_col', ColumnSortingAlbumType::class);
+		$columnSorting = $columnSorting?->toColumnSortingType();
+
+		$orderSorting = Configs::getValueAsEnum('sorting_albums_order', OrderSortingType::class);
+
 		return new self(
-			Configs::get_value('sorting_albums_col', SortingCriterion::COLUMN_CREATED_AT),
-			Configs::get_value('sorting_albums_order', SortingCriterion::ASC)
+			$columnSorting ?? ColumnSortingType::CREATED_AT,
+			$orderSorting ?? OrderSortingType::ASC
 		);
 	}
 }

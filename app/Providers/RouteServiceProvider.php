@@ -1,7 +1,14 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Providers;
 
+use App\Assets\Features;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
 use Illuminate\Http\Request;
@@ -24,9 +31,9 @@ class RouteServiceProvider extends ServiceProvider
 	 *
 	 * In addition, it is set as the URL generator's root namespace.
 	 *
-	 * @var string
+	 * @var string|null
 	 */
-	protected $namespace = null;
+	protected $namespace;
 
 	/**
 	 * Define your route model bindings, pattern filters, etc.
@@ -41,26 +48,29 @@ class RouteServiceProvider extends ServiceProvider
 		// "catch all" route and the routes are considered in a "first match"
 		// fashion.
 		$this->routes(function () {
-			Route::middleware('api')
-				->prefix('api')
-				->group(base_path('routes/api.php'));
-
-			Route::middleware('api-admin')
-				->prefix('api')
-				->group(base_path('routes/api-admin.php'));
-
-			Route::middleware('web-install')
-				->group(base_path('routes/web-install.php'));
-
-			Route::middleware('web-admin')
-				->group(base_path('routes/web-admin.php'));
-
-			Route::middleware('web')
-				->group(base_path('routes/web-livewire.php'));
-
-			Route::middleware('web')
-				->group(base_path('routes/web.php'));
+			Features::when('vuejs', fn () => $this->getLycheeV6Routes(), fn () => $this->getLegacyRoutes());
 		});
+	}
+
+	private function getLycheeV6Routes(): void
+	{
+		Route::middleware('web-admin')->group(base_path('routes/web-admin-v2.php'));
+		Route::middleware('api')->prefix('api/v2')->group(base_path('routes/api_v2.php'));
+		Route::middleware('web-install')->group(base_path('routes/web-install.php'));
+
+		if (Features::active('legacy_api')) {
+			Route::middleware('api')->prefix('api')->group(base_path('routes/api_v1.php'));
+		}
+
+		Route::middleware('web')->group(base_path('routes/web_v2.php'));
+	}
+
+	private function getLegacyRoutes(): void
+	{
+		Route::middleware('web-install')->group(base_path('routes/web-install.php'));
+		Route::middleware('api')->prefix('api')->group(base_path('routes/api_v1.php'));
+		Route::middleware('web-admin')->group(base_path('routes/web-admin-v1.php'));
+		Route::middleware('web')->group(base_path('routes/web_v1.php'));
 	}
 
 	/**
@@ -71,7 +81,9 @@ class RouteServiceProvider extends ServiceProvider
 	protected function configureRateLimiting()
 	{
 		RateLimiter::for('api', function (Request $request) {
+			// @codeCoverageIgnoreStart
 			return Limit::perMinute(60);
+			// @codeCoverageIgnoreEnd
 		});
 	}
 }

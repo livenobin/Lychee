@@ -1,22 +1,24 @@
 <?php
 
-use App\Models\Configs;
-use DarkGhostHunter\Larapass\Eloquent\WebAuthnCredential;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-class CreateWebAuthnTables extends Migration
-{
+return new class() extends Migration {
+	public const DELETED_AT = 'disabled_at';
+
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
-		defined('STRING') or define('STRING', 'string');
-
 		Schema::create('web_authn_credentials', function (Blueprint $table) {
 			$table->string('id', 255);
 
@@ -38,8 +40,8 @@ class CreateWebAuthnTables extends Migration
 			$table->uuid('user_handle')->nullable();
 
 			$table->timestamps();
-			$table->softDeletes(WebAuthnCredential::DELETED_AT);
-			Configs::where('key', '=', 'username')->orWhere('key', '=', 'password')->update(['type_range' => STRING]);
+			$table->softDeletes(self::DELETED_AT);
+			DB::table('configs')->where('key', '=', 'username')->orWhere('key', '=', 'password')->update(['type_range' => 'string']);
 
 			$table->primary(['id', 'user_id']);
 		});
@@ -47,16 +49,12 @@ class CreateWebAuthnTables extends Migration
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
-		defined('STRING_REQ') or define('STRING_REQ', 'string_required');
-
 		if (Schema::hasTable('configs')) {
-			Configs::where('key', '=', 'username')->orWhere('key', '=', 'password')->update(['type_range' => STRING_REQ]);
+			DB::table('configs')->where('key', '=', 'username')->orWhere('key', '=', 'password')->update(['type_range' => 'string_required']);
 		}
 		Schema::dropIfExists('web_authn_credentials');
 	}
-}
+};

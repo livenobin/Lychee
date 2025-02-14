@@ -1,14 +1,15 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\Diagnostics;
 
-abstract class Diagnostics
+class Diagnostics
 {
-	/**
-	 * @return string[] array of messages
-	 */
-	abstract public function get(): array;
-
 	/**
 	 * Constructs a formatted message line.
 	 *
@@ -21,8 +22,8 @@ abstract class Diagnostics
 	 *
 	 * @return string a formatted message line
 	 */
-	protected static function line(string $key, string $value): string
+	public static function line(string $key, string $value): string
 	{
-		return sprintf('%-32s %s', $key, $value);
+		return sprintf('%-42s %s', $key, $value);
 	}
 }

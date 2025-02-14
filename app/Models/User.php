@@ -1,23 +1,36 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models;
 
+use App\Constants\AccessPermissionConstants as APC;
 use App\Exceptions\ModelDBException;
-use App\Facades\AccessControl;
+use App\Exceptions\UnauthenticatedException;
+use App\Models\Builders\UserBuilder;
 use App\Models\Extensions\ThrowsConsistentExceptions;
-use App\Models\Extensions\UseFixedQueryBuilder;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Models\Extensions\UTCBasedTimes;
 use Carbon\Exceptions\InvalidFormatException;
-use DarkGhostHunter\Larapass\Contracts\WebAuthnAuthenticatable;
-use DarkGhostHunter\Larapass\WebAuthnAuthentication;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Query\Builder as BaseBuilder;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Notifications\DatabaseNotificationCollection;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
+use Laragear\WebAuthn\Contracts\WebAuthnAuthenticatable;
+use Laragear\WebAuthn\Models\WebAuthnCredential;
+use Laragear\WebAuthn\WebAuthnAuthentication;
+use function Safe\mb_convert_encoding;
 
 /**
  * App\Models\User.
@@ -28,26 +41,62 @@ use Illuminate\Support\Carbon;
  * @property string                                                $username
  * @property string|null                                           $password
  * @property string|null                                           $email
+ * @property bool                                                  $may_administrate
  * @property bool                                                  $may_upload
- * @property bool                                                  $is_locked
+ * @property bool                                                  $may_edit_own_settings
+ * @property int                                                   $quota_kb
+ * @property string|null                                           $description
+ * @property string|null                                           $note
+ * @property string|null                                           $token
  * @property string|null                                           $remember_token
  * @property Collection<BaseAlbumImpl>                             $albums
+ * @property Collection<OauthCredential>                           $oauthCredentials
  * @property DatabaseNotificationCollection|DatabaseNotification[] $notifications
  * @property Collection<BaseAlbumImpl>                             $shared
- * @property Collection<Photo>                                     $photos
+ * @property Collection<int,Photo>                                 $photos
+ * @property int|null                                              $photos_count
+ * @property Collection<int, WebAuthnCredential>                   $webAuthnCredentials
+ * @property int|null                                              $web_authn_credentials_count
+ *
+ * @method static UserBuilder|User addSelect($column)
+ * @method static UserBuilder|User join(string $table, string $first, string $operator = null, string $second = null, string $type = 'inner', string $where = false)
+ * @method static UserBuilder|User joinSub($query, $as, $first, $operator = null, $second = null, $type = 'inner', $where = false)
+ * @method static UserBuilder|User leftJoin(string $table, string $first, string $operator = null, string $second = null)
+ * @method static UserBuilder|User newModelQuery()
+ * @method static UserBuilder|User newQuery()
+ * @method static UserBuilder|User orderBy($column, $direction = 'asc')
+ * @method static UserBuilder|User query()
+ * @method static UserBuilder|User select($columns = [])
+ * @method static UserBuilder|User whereCreatedAt($value)
+ * @method static UserBuilder|User whereEmail($value)
+ * @method static UserBuilder|User whereId($value)
+ * @method static UserBuilder|User whereIn(string $column, string $values, string $boolean = 'and', string $not = false)
+ * @method static UserBuilder|User whereMayAdministrate($value)
+ * @method static UserBuilder|User whereMayEditOwnSettings($value)
+ * @method static UserBuilder|User whereMayUpload($value)
+ * @method static UserBuilder|User whereNotIn(string $column, string $values, string $boolean = 'and')
+ * @method static UserBuilder|User wherePassword($value)
+ * @method static UserBuilder|User whereRememberToken($value)
+ * @method static UserBuilder|User whereToken($value)
+ * @method static UserBuilder|User whereUpdatedAt($value)
+ * @method static UserBuilder|User whereUsername($value)
+ *
+ * @mixin \Eloquent
  */
 class User extends Authenticatable implements WebAuthnAuthenticatable
 {
+	/** @phpstan-use HasFactory<\Database\Factories\UserFactory> */
+	use HasFactory;
 	use Notifiable;
 	use WebAuthnAuthentication;
 	use UTCBasedTimes;
 	use ThrowsConsistentExceptions {
 		delete as parentDelete;
 	}
-	use UseFixedQueryBuilder;
+	use ToArrayThrowsNotImplemented;
 
 	/**
-	 * The attributes that are mass assignable.
+	 * @var array<int,string> the attributes that are mass assignable
 	 */
 	protected $fillable = [
 		'username',
@@ -56,73 +105,98 @@ class User extends Authenticatable implements WebAuthnAuthenticatable
 	];
 
 	/**
-	 * The attributes that should be hidden for arrays.
+	 * @var array<string, string>
 	 */
-	protected $hidden = [
-		'password',
-		'remember_token',
-		'created_at',
-		'updated_at',
-	];
-
 	protected $casts = [
 		'id' => 'integer',
 		'created_at' => 'datetime',
 		'updated_at' => 'datetime',
+		'may_administrate' => 'boolean',
 		'may_upload' => 'boolean',
-		'is_locked' => 'boolean',
+		'may_edit_own_settings' => 'boolean',
+		'quota_kb' => 'integer',
 	];
+
+	protected $hidden = [];
+
+	/**
+	 * Create a new Eloquent query builder for the model.
+	 *
+	 * @param BaseBuilder $query
+	 *
+	 * @return UserBuilder
+	 */
+	public function newEloquentBuilder($query): UserBuilder
+	{
+		return new UserBuilder($query);
+	}
 
 	/**
 	 * Return the albums owned by the user.
 	 *
-	 * @return HasMany
+	 * @return HasMany<Album,$this>
 	 */
 	public function albums(): HasMany
 	{
-		return $this->hasMany('App\Models\BaseAlbumImpl', 'owner_id', 'id');
+		/** @phpstan-ignore-next-line */
+		return $this->hasMany(BaseAlbumImpl::class, 'owner_id', 'id');
 	}
 
 	/**
 	 * Return the photos owned by the user.
 	 *
-	 * @return HasMany
+	 * @return HasMany<Photo,$this>
 	 */
 	public function photos(): HasMany
 	{
-		return $this->hasMany('App\Models\Photo', 'owner_id', 'id');
+		return $this->hasMany(Photo::class, 'owner_id', 'id');
 	}
 
 	/**
 	 * Return the albums shared to the user.
 	 *
-	 * @return BelongsToMany
+	 * @return BelongsToMany<BaseAlbumImpl,$this>
 	 */
 	public function shared(): BelongsToMany
 	{
 		return $this->belongsToMany(
 			BaseAlbumImpl::class,
-			'user_base_album',
-			'user_id',
-			'base_album_id'
+			APC::ACCESS_PERMISSIONS,
+			APC::USER_ID,
+			APC::BASE_ALBUM_ID
 		);
 	}
 
-	public function is_admin(): bool
+	/**
+	 * Return the Oauth credentials owned by the user.
+	 *
+	 * @return HasMany<OauthCredential,$this>
+	 */
+	public function oauthCredentials(): HasMany
 	{
-		return $this->id == 0;
+		return $this->hasMany(OauthCredential::class, 'user_id', 'id');
 	}
 
-	// ! Used by Larapass
+	/**
+	 * Used by Larapass.
+	 *
+	 * @return string
+	 */
 	public function username(): string
 	{
-		return utf8_encode($this->username);
+		// @phpstan-ignore-next-line This is temporary and should hopefully be fixed soon by Safe with proper type hinting.
+		return mb_convert_encoding($this->username, 'UTF-8');
 	}
 
-	// ! Used by Larapass
-	public function name(): string
+	/**
+	 * Used by Larapass since 2022-09-21.
+	 *
+	 * @return string
+	 */
+	public function getNameAttribute(): string
 	{
-		return ($this->id == 0) ? 'Admin' : $this->username;
+		// If strings starts by '$2y$', it is very likely that it's a blowfish hash.
+		return substr($this->username, 0, 4) === '$2y$' ? 'Admin' : $this->username;
 	}
 
 	/**
@@ -136,25 +210,35 @@ class User extends Authenticatable implements WebAuthnAuthenticatable
 	 *
 	 * @throws ModelDBException
 	 * @throws InvalidFormatException
+	 * @throws UnauthenticatedException
 	 */
 	public function delete(): bool
 	{
-		$now = Carbon::now();
-		$newOwnerID = AccessControl::id();
-
-		/** @var HasMany[] $ownershipRelations */
+		/** @var HasMany<Photo|Album,$this>[] $ownershipRelations */
 		$ownershipRelations = [$this->photos(), $this->albums()];
+		$hasAny = false;
 
 		foreach ($ownershipRelations as $relation) {
-			// We must also update the `updated_at` column of the related
-			// models in case clients have cached these models.
-			$relation->update([
-				$relation->getForeignKeyName() => $newOwnerID,
-				$relation->getRelated()->getUpdatedAtColumn() => $relation->getRelated()->fromDateTime($now),
-			]);
+			$hasAny = $hasAny || $relation->count() > 0;
 		}
 
-		$this->shared()->delete();
+		if ($hasAny) {
+			// only try update relations if there are any to allow deleting users from migrations (relations are moved before deleting)
+			$now = Carbon::now();
+			$newOwnerID = Auth::id() ?? throw new UnauthenticatedException();
+
+			foreach ($ownershipRelations as $relation) {
+				// We must also update the `updated_at` column of the related
+				// models in case clients have cached these models.
+				$relation->update([
+					$relation->getForeignKeyName() => $newOwnerID,
+					$relation->getRelated()->getUpdatedAtColumn() => $relation->getRelated()->fromDateTime($now),
+				]);
+			}
+		}
+
+		AccessPermission::query()->where(APC::USER_ID, '=', $this->id)->delete();
+		WebAuthnCredential::query()->where('authenticatable_id', '=', $this->id)->delete();
 
 		return $this->parentDelete();
 	}

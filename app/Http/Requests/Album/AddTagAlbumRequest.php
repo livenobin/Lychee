@@ -1,13 +1,23 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Http\Requests\Album;
 
+use App\Contracts\Http\Requests\HasTags;
+use App\Contracts\Http\Requests\HasTitle;
+use App\Contracts\Http\Requests\RequestAttribute;
+use App\Contracts\Models\AbstractAlbum;
 use App\Http\Requests\BaseApiRequest;
-use App\Http\Requests\Contracts\HasTags;
-use App\Http\Requests\Contracts\HasTitle;
 use App\Http\Requests\Traits\HasTagsTrait;
 use App\Http\Requests\Traits\HasTitleTrait;
+use App\Policies\AlbumPolicy;
 use App\Rules\TitleRule;
+use Illuminate\Support\Facades\Gate;
 
 class AddTagAlbumRequest extends BaseApiRequest implements HasTitle, HasTags
 {
@@ -22,7 +32,7 @@ class AddTagAlbumRequest extends BaseApiRequest implements HasTitle, HasTags
 		// Sic!
 		// Tag albums can only be created below the root album which has the
 		// ID `null`.
-		return $this->authorizeAlbumWrite(null);
+		return Gate::check(AlbumPolicy::CAN_EDIT, [AbstractAlbum::class, null]);
 	}
 
 	/**
@@ -31,9 +41,9 @@ class AddTagAlbumRequest extends BaseApiRequest implements HasTitle, HasTags
 	public function rules(): array
 	{
 		return [
-			HasTitle::TITLE_ATTRIBUTE => ['required', new TitleRule()],
-			HasTags::TAGS_ATTRIBUTE => 'required|array|min:1',
-			HasTags::TAGS_ATTRIBUTE . '.*' => 'required|string|min:1',
+			RequestAttribute::TITLE_ATTRIBUTE => ['required', new TitleRule()],
+			RequestAttribute::TAGS_ATTRIBUTE => 'required|array|min:1',
+			RequestAttribute::TAGS_ATTRIBUTE . '.*' => 'required|string|min:1',
 		];
 	}
 
@@ -42,7 +52,7 @@ class AddTagAlbumRequest extends BaseApiRequest implements HasTitle, HasTags
 	 */
 	protected function processValidatedValues(array $values, array $files): void
 	{
-		$this->title = $values[HasTitle::TITLE_ATTRIBUTE];
-		$this->tags = $values[HasTags::TAGS_ATTRIBUTE];
+		$this->title = $values[RequestAttribute::TITLE_ATTRIBUTE];
+		$this->tags = $values[RequestAttribute::TAGS_ATTRIBUTE];
 	}
 }

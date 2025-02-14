@@ -1,55 +1,41 @@
 <?php
 
-use App\Models\Configs;
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-class Rss extends Migration
-{
-	/**
-	 * Run the migrations.
-	 *
-	 * @return void
-	 */
-	public function up()
+use App\Legacy\BaseConfigMigration;
+
+return new class() extends BaseConfigMigration {
+	public function getConfigs(): array
 	{
-		defined('BOOL') or define('BOOL', '0|1');
-		defined('INT') or define('INT', 'int');
-
-		DB::table('configs')->insert([
+		return [
 			[
 				'key' => 'rss_enable',
 				'value' => '0',
 				'confidentiality' => '0',
 				'cat' => 'Mod RSS',
-				'type_range' => BOOL,
+				'type_range' => self::BOOL,
+				'description' => '',
 			],
 			[
 				'key' => 'rss_recent_days',
 				'value' => '7',
 				'confidentiality' => '0',
 				'cat' => 'Mod RSS',
-				'type_range' => INT,
+				'type_range' => self::INT,
+				'description' => '',
 			],
 			[
 				'key' => 'rss_max_items',
 				'value' => '100',
 				'confidentiality' => '0',
 				'cat' => 'Mod RSS',
-				'type_range' => INT,
+				'type_range' => self::INT,
+				'description' => '',
 			],
-		]);
+		];
 	}
-
-	/**
-	 * Reverse the migrations.
-	 *
-	 * @return void
-	 */
-	public function down()
-	{
-		Configs::where('key', '=', 'rss_enable')->delete();
-		Configs::where('key', '=', 'rss_recent_days')->delete();
-		Configs::where('key', '=', 'rss_max_items')->delete();
-	}
-}
+};

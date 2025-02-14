@@ -1,10 +1,17 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\Album;
 
 use App\Exceptions\ModelDBException;
-use App\Facades\AccessControl;
+use App\Exceptions\UnauthenticatedException;
 use App\Models\TagAlbum;
+use Illuminate\Support\Facades\Auth;
 
 class CreateTagAlbum extends Action
 {
@@ -17,13 +24,17 @@ class CreateTagAlbum extends Action
 	 * @return TagAlbum
 	 *
 	 * @throws ModelDBException
+	 * @throws UnauthenticatedException
 	 */
 	public function create(string $title, array $show_tags): TagAlbum
 	{
+		/** @var int */
+		$userId = Auth::id() ?? throw new UnauthenticatedException();
+
 		$album = new TagAlbum();
 		$album->title = $title;
 		$album->show_tags = $show_tags;
-		$album->owner_id = AccessControl::id();
+		$album->owner_id = $userId;
 		$album->save();
 
 		return $album;

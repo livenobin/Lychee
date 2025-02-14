@@ -1,56 +1,57 @@
-/node_modules
+# We don't care about those
+node_modules
+build/*
 
-public/Lychee-front/node_modules/
-public/Lychee-front/package-lock.json
+# Those are personal
+public/dist/user.css
+public/dist/custom.js
+public/build/*
 
-public/Lychee-front/node_modules/
-public/Lychee-front/bower_components/
-public/Lychee-front/package-lock.json
+# Pictures we do not commit
+public/uploads/**
+public/uploads-*/**
 
-public/uploads/big/*
-public/uploads/import/*
-public/uploads/medium/*
-public/uploads/raw/*
-public/uploads/small/*
-public/uploads/thumb/*
-public/uploads/tracks/*
-
-!public/uploads/big/index.html
-!public/uploads/import/index.html
-!public/uploads/medium/index.html
-!public/uploads/raw/index.html
-!public/uploads/small/index.html
-!public/uploads/thumb/index.html
-!public/uploads/tracks/index.html
-
+# Storage stuff: useless
 /storage/*.key
 /storage/clockwork/
+
+# Those are generated
 /vendor
+
+# IDE & Cache stuff
 /.idea
 /.vscode
-/.vagrant
-Homestead.json
-Homestead.yaml
 npm-debug.log
-yarn-error.log
+.phpunit*
+_ide*
+.php_cs.cache
+.php-cs-fixer.cache
+*.log
+clover.xml
+*.swp
+.DS_Store
+.NO_AUTO_COMPOSER_MIGRATE
+storage/bootstrap/cache/*
+storage/image-jobs/*
+
+# used by Vite
+public/hot
+lang/php_*.json
+
+sync/*
+
+# Local DB for easy deployment
+backup.sql
+*-bck
+
+# Make sure we don't commit secrets
 .env
 .env.*
 
-public/dist/user.css
 aliases
+pgdata
+docker-compose.yml
 
+# Building stuff for releaseses
 Lychee/*
-.phpunit*
-_ide*
-
-.php_cs.cache
-.php-cs-fixer.cache
-
-*.log
-package-lock.json
-clover.xml
-*.swp
-installed.log
-.DS_Store
-.NO_SECURE_KEY
-.NO_AUTO_COMPOSER_MIGRATE
+report_*

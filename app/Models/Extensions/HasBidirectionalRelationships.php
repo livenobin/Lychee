@@ -1,8 +1,14 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models\Extensions;
 
-use App\Contracts\BidirectionalRelation;
+use App\Contracts\Relations\BidirectionalRelation;
 use App\Relations\HasManyBidirectionally;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -25,8 +31,7 @@ trait HasBidirectionalRelationships
 	{
 		// Run original code from HasAttributes::getRelationshipFromMethod
 
-		/** @var Relation $relation */
-		$relation = $this->$method();
+		$relation = $this->$method(); // @phpstan-ignore-line, PhpStan does not like variadic calls
 
 		if (!$relation instanceof Relation) {
 			if (is_null($relation)) {
@@ -63,25 +68,33 @@ trait HasBidirectionalRelationships
 	 *
 	 * Inspired by {@link \Illuminate\Database\Eloquent\Concerns\HasRelationships::hasMany}.
 	 *
-	 * @param string      $related
-	 * @param string|null $foreignKey
-	 * @param string|null $localKey
-	 * @param string|null $foreignMethodName
+	 * @template TRelatedModel of \Illuminate\Database\Eloquent\Model
 	 *
-	 * @return HasManyBidirectionally
+	 * @param class-string<TRelatedModel> $related
+	 * @param string|null                 $foreignKey
+	 * @param string|null                 $localKey
+	 * @param string|null                 $foreignMethodName
+	 *
+	 * @return HasManyBidirectionally<TRelatedModel,$this>
 	 */
 	public function hasManyBidirectionally(string $related, ?string $foreignKey = null, ?string $localKey = null, ?string $foreignMethodName = null): HasManyBidirectionally
 	{
+		/** @var TRelatedModel $instance */
 		$instance = $this->newRelatedInstance($related);
 
-		$foreignKey = $foreignKey ?: $this->getForeignKey();
+		$foreignKey = $foreignKey ?? $this->getForeignKey();
 
-		$localKey = $localKey ?: $this->getKeyName();
+		$localKey = $localKey ?? $this->getKeyName();
 
-		$foreignMethodName = $foreignMethodName ?: $this->getForeignProperty();
+		$foreignMethodName = $foreignMethodName ?? $this->getForeignProperty();
 
+		/** @phpstan-ignore-next-line */
 		return $this->newHasManyBidirectionally(
-			$instance->newQuery(), $this, $instance->getTable() . '.' . $foreignKey, $localKey, $foreignMethodName
+			$instance->newQuery(),
+			$this,
+			$instance->getTable() . '.' . $foreignKey,
+			$localKey,
+			$foreignMethodName
 		);
 	}
 
@@ -90,13 +103,16 @@ trait HasBidirectionalRelationships
 	 *
 	 * Inspired by {@link \Illuminate\Database\Eloquent\Concerns\HasRelationships::newHasMany}.
 	 *
-	 * @param Builder $query
-	 * @param Model   $parent
-	 * @param string  $foreignKey
-	 * @param string  $localKey
-	 * @param string  $foreignMethodName
+	 * @template TRelatedModel of \Illuminate\Database\Eloquent\Model
+	 * @template TParentModel of \Illuminate\Database\Eloquent\Model
 	 *
-	 * @return HasManyBidirectionally
+	 * @param Builder<TRelatedModel> $query
+	 * @param TParentModel           $parent
+	 * @param string                 $foreignKey
+	 * @param string                 $localKey
+	 * @param string                 $foreignMethodName
+	 *
+	 * @return HasManyBidirectionally<TRelatedModel,TParentModel>
 	 */
 	protected function newHasManyBidirectionally(Builder $query, Model $parent, string $foreignKey, string $localKey, string $foreignMethodName): HasManyBidirectionally
 	{

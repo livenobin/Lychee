@@ -1,43 +1,62 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models\Extensions;
 
-use App\DTO\DTO;
-use App\DTO\PhotoSortingCriterion;
+use App\Assets\Features;
+use App\DTO\AbstractDTO;
 use App\DTO\SortingCriterion;
+use App\Enum\ColumnSortingPhotoType;
+use App\Enum\OrderSortingType;
+use App\Enum\SizeVariantType;
 use App\Exceptions\InvalidPropertyException;
+use App\Models\Configs;
 use App\Models\Photo;
-use App\Models\SizeVariant;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
-class Thumb extends DTO
+/**
+ * @extends AbstractDTO<string|null>
+ */
+class Thumb extends AbstractDTO
 {
-	protected string $id;
-	protected string $type;
-	protected string $thumbUrl;
-	protected ?string $thumb2xUrl;
+	public string $id;
+	public string $type;
+	public ?string $thumbUrl;
+	public ?string $thumb2xUrl;
+	public ?string $placeholderUrl;
 
-	protected function __construct(string $id, string $type, string $thumbUrl, ?string $thumb2xUrl = null)
+	protected function __construct(string $id, string $type, string $thumbUrl, ?string $thumb2xUrl = null, ?string $placeholderUrl = null)
 	{
 		$this->id = $id;
 		$this->type = $type;
 		$this->thumbUrl = $thumbUrl;
 		$this->thumb2xUrl = $thumb2xUrl;
+		$this->placeholderUrl = $placeholderUrl;
 	}
 
 	/**
 	 * Restricts the given relation for size variants such that only the
 	 * necessary variants for a thumbnail are selected.
 	 *
-	 * @param HasMany $relation
+	 * @param HasMany<Photo,$this> $relation
 	 *
-	 * @return HasMany
+	 * @return HasMany<Photo,$this>
 	 */
-	public static function sizeVariantsFilter(HasMany $relation): HasMany
+	public static function sizeVariantsFilter(HasMany $relation): HasMany // @phpstan-ignore-line
 	{
-		return $relation->whereIn('type', [SizeVariant::THUMB, SizeVariant::THUMB2X]);
+		$svAlbumThumbs = [SizeVariantType::THUMB, SizeVariantType::THUMB2X, SizeVariantType::PLACEHOLDER];
+		if (Features::active('vuejs')) {
+			$svAlbumThumbs = [SizeVariantType::SMALL, SizeVariantType::SMALL2X, SizeVariantType::THUMB, SizeVariantType::THUMB2X, SizeVariantType::PLACEHOLDER];
+		}
+
+		return $relation->whereIn('type', $svAlbumThumbs);
 	}
 
 	/**
@@ -46,8 +65,11 @@ class Thumb extends DTO
 	 * Note, this method assumes that the relation is already restricted
 	 * such that it only returns photos which the current user may see.
 	 *
-	 * @param Relation|Builder $photoQueryable the relation to or query for {@link Photo} which is used to pick a thumb
-	 * @param SortingCriterion $sorting        the sorting criterion
+	 * @template TDeclaringModel of \Illuminate\Database\Eloquent\Model
+	 * @template TResult
+	 *
+	 * @param Relation<Photo,TDeclaringModel,TResult>|Builder<Photo> $photoQueryable the relation to or query for {@link Photo} which is used to pick a thumb
+	 * @param SortingCriterion                                       $sorting        the sorting criterion
 	 *
 	 * @return Thumb|null the created thumbnail; null if the relation is empty
 	 *
@@ -59,9 +81,47 @@ class Thumb extends DTO
 		try {
 			/** @var Photo|null $cover */
 			$cover = $photoQueryable
-				->withOnly(['size_variants' => fn (HasMany $r) => self::sizeVariantsFilter($r)])
-				->orderBy('photos.' . PhotoSortingCriterion::COLUMN_IS_STARRED, SortingCriterion::DESC)
-				->orderBy('photos.' . $sorting->column, $sorting->order)
+				->withOnly(['size_variants' => (fn ($r) => self::sizeVariantsFilter($r))])
+				->orderBy('photos.' . ColumnSortingPhotoType::IS_STARRED->value, OrderSortingType::DESC->value)
+				->orderBy('photos.' . $sorting->column->value, $sorting->order->value)
+				->select(['photos.id', 'photos.type'])
+				->first();
+
+			return self::createFromPhoto($cover);
+			// @codeCoverageIgnoreStart
+		} catch (\InvalidArgumentException $e) {
+			throw new InvalidPropertyException('Sorting order invalid', $e);
+		}
+		// @codeCoverageIgnoreEnd
+	}
+
+	/**
+	 * Creates a thumb by using the best rated photo from the given queryable.
+	 * In other words, same as above but this time we pick a random image instead.
+	 *
+	 * Note, this method assumes that the relation is already restricted
+	 * such that it only returns photos which the current user may see.
+	 *
+	 * @template TDeclaringModel of \Illuminate\Database\Eloquent\Model
+	 * @template TResult
+	 *
+	 * @param Relation<Photo,TDeclaringModel,TResult>|Builder<Photo> $photoQueryable the relation to or query for {@link Photo} which is used to pick a thumb
+	 *
+	 * @return Thumb|null the created thumbnail; null if the relation is empty
+	 *
+	 * @throws InvalidPropertyException thrown, if $sortingOrder neither
+	 *                                  equals `desc` nor `asc`
+	 *
+	 * @codeCoverageIgnore We don't need to test that one.
+	 * Note that the inRandomOrder maybe slower than fetching length + random int.
+	 */
+	public static function createFromRandomQueryable(Relation|Builder $photoQueryable): ?Thumb
+	{
+		try {
+			/** @var Photo|null $cover */
+			$cover = $photoQueryable
+				->withOnly(['size_variants' => (fn ($r) => self::sizeVariantsFilter($r))])
+				->inRandomOrder()
 				->select(['photos.id', 'photos.type'])
 				->first();
 
@@ -80,27 +140,42 @@ class Thumb extends DTO
 	 */
 	public static function createFromPhoto(?Photo $photo): ?Thumb
 	{
-		if (!$photo) {
+		if ($photo === null) {
+			// @codeCoverageIgnoreStart
 			return null;
+			// @codeCoverageIgnoreEnd
 		}
-		$thumb = $photo->size_variants->getThumb();
-		if (!$thumb) {
+
+		$thumb = $photo->size_variants->getSmall() ?? $photo->size_variants->getThumb();
+		if ($thumb === null) {
+			// @codeCoverageIgnoreStart
 			return null;
+			// @codeCoverageIgnoreEnd
 		}
-		$thumb2x = $photo->size_variants->getThumb2x();
+
+		$thumb2x = $photo->size_variants->getSmall() !== null
+			? $photo->size_variants->getSmall2x()
+			: $photo->size_variants->getThumb2x();
+
+		$placeholder = (Configs::getValueAsBool('low_quality_image_placeholder'))
+			? $photo->size_variants->getPlaceholder()
+			// @codeCoverageIgnoreStart
+			: null;
+		// @codeCoverageIgnoreEnd
 
 		return new self(
 			$photo->id,
 			$photo->type,
 			$thumb->url,
-			$thumb2x?->url
+			$thumb2x?->url,
+			$placeholder?->url,
 		);
 	}
 
 	/**
 	 * Serializes this object into an array.
 	 *
-	 * @return array The serialized properties of this object
+	 * @return array<string,string|null> The serialized properties of this object
 	 */
 	public function toArray(): array
 	{
@@ -109,6 +184,7 @@ class Thumb extends DTO
 			'type' => $this->type,
 			'thumb' => $this->thumbUrl,
 			'thumb2x' => $this->thumb2xUrl,
+			'placeholder' => $this->placeholderUrl,
 		];
 	}
 }

@@ -1,37 +1,25 @@
 <?php
 
-use App\Models\Configs;
-use Illuminate\Database\Migrations\Migration;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-class AddLogMaxNumLine extends Migration
-{
-	/**
-	 * Run the migrations.
-	 *
-	 * @return void
-	 */
-	public function up()
+use App\Legacy\BaseConfigMigration;
+
+return new class() extends BaseConfigMigration {
+	public function getConfigs(): array
 	{
-		defined('INT') or define('INT', 'int');
-
-		DB::table('configs')->insert([
+		return [
 			[
 				'key' => 'log_max_num_line',
 				'value' => '1000',
 				'confidentiality' => '2',
 				'cat' => 'Admin',
-				'type_range' => INT,
+				'type_range' => self::INT,
+				'description' => '',
 			],
-		]);
+		];
 	}
-
-	/**
-	 * Reverse the migrations.
-	 *
-	 * @return void
-	 */
-	public function down()
-	{
-		Configs::where('key', '=', 'log_max_num_line')->delete();
-	}
-}
+};

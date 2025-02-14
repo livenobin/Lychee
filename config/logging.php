@@ -1,9 +1,5 @@
 <?php
 
-use Monolog\Handler\NullHandler;
-use Monolog\Handler\StreamHandler;
-use Monolog\Handler\SyslogUdpHandler;
-
 return [
 	/*
 	|--------------------------------------------------------------------------
@@ -16,7 +12,23 @@ return [
 	|
 	*/
 
-	'default' => env('LOG_CHANNEL', 'stack'),
+	'default' => 'stack',
+
+	/*
+	|--------------------------------------------------------------------------
+	| Deprecations Log Channel
+	|--------------------------------------------------------------------------
+	|
+	| This option controls the log channel that should be used to log warnings
+	| regarding deprecated PHP and library features. This allows you to get
+	| your application ready for upcoming major versions of dependencies.
+	|
+	*/
+
+	'deprecations' => [
+		'channel' => env('LOG_DEPRECATIONS_CHANNEL', 'null'),
+		'trace' => false,
+	],
 
 	/*
 	|--------------------------------------------------------------------------
@@ -36,67 +48,45 @@ return [
 	'channels' => [
 		'stack' => [
 			'driver' => 'stack',
-			'channels' => ['single'],
-			'ignore_exceptions' => false,
+			'channels' => ['debug-daily', 'error', 'warning',  'notice'],
 		],
 
-		'single' => [
-			'driver' => 'single',
-			'path' => storage_path('logs/laravel.log'),
-			'level' => 'debug',
-		],
-
-		'daily' => [
+		// Whatever debug log is needed
+		// Mostly SQL requests
+		'debug-daily' => [
+			'path' => storage_path('logs/daily.log'),
 			'driver' => 'daily',
-			'path' => storage_path('logs/laravel.log'),
-			'level' => 'debug',
-			'days' => 14,
-		],
-
-		'slack' => [
-			'driver' => 'slack',
-			'url' => env('LOG_SLACK_WEBHOOK_URL'),
-			'username' => 'Laravel Log',
-			'emoji' => ':boom:',
-			'level' => 'critical',
-		],
-
-		'papertrail' => [
-			'driver' => 'monolog',
-			'level' => 'debug',
-			'handler' => SyslogUdpHandler::class,
-			'handler_with' => [
-				'host' => env('PAPERTRAIL_URL'),
-				'port' => env('PAPERTRAIL_PORT'),
-			],
-		],
-
-		'stderr' => [
-			'driver' => 'monolog',
-			'handler' => StreamHandler::class,
-			'formatter' => env('LOG_STDERR_FORMATTER'),
-			'with' => [
-				'stream' => 'php://stderr',
-			],
-		],
-
-		'syslog' => [
-			'driver' => 'syslog',
 			'level' => 'debug',
 		],
 
-		'errorlog' => [
-			'driver' => 'errorlog',
-			'level' => 'debug',
+		// Something went wrong
+		'error' => [
+			'path' => storage_path('logs/errors.log'),
+			'driver' => 'single',
+			'level' => 'error',
+			'bubble' => false,
 		],
 
-		'null' => [
-			'driver' => 'monolog',
-			'handler' => NullHandler::class,
+		// Something may have gone wrong
+		'warning' => [
+			'path' => storage_path('logs/warning.log'),
+			'driver' => 'single',
+			'level' => 'warning',
+			'bubble' => false,
 		],
 
-		'emergency' => [
-			'path' => storage_path('logs/laravel.log'),
+		// By the way...
+		'notice' => [
+			'path' => storage_path('logs/notice.log'),
+			'driver' => 'daily',
+			'level' => 'notice',
+		],
+
+		// Specific channel to check who is accessing Lychee
+		'login' => [
+			'path' => storage_path('logs/login.log'),
+			'driver' => 'single',
+			'level' => 'info',
 		],
 	],
 ];

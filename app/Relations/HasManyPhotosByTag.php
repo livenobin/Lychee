@@ -1,16 +1,28 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Relations;
 
-use App\Contracts\InternalLycheeException;
-use App\DTO\SortingCriterion;
+use App\Contracts\Exceptions\InternalLycheeException;
+use App\Enum\OrderSortingType;
 use App\Exceptions\Internal\NotImplementedException;
+use App\Models\Configs;
 use App\Models\Extensions\SortingDecorator;
 use App\Models\TagAlbum;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
-class HasManyPhotosByTag extends HasManyPhotos
+/**
+ * @disregard
+ *
+ * @extends BaseHasManyPhotos<TagAlbum>
+ */
+class HasManyPhotosByTag extends BaseHasManyPhotos
 {
 	public function __construct(TagAlbum $owningAlbum)
 	{
@@ -42,7 +54,7 @@ class HasManyPhotosByTag extends HasManyPhotos
 	 * The unified result of the query is mapped to the specific albums
 	 * by {@link HasManyPhotosByTag::match()}.
 	 *
-	 * @param array $albums an array of {@link \App\Models\TagAlbum} whose photos are loaded
+	 * @param TagAlbum[] $albums an array of {@link \App\Models\TagAlbum} whose photos are loaded
 	 *
 	 * @return void
 	 *
@@ -57,8 +69,12 @@ class HasManyPhotosByTag extends HasManyPhotos
 		$album = $albums[0];
 		$tags = $album->show_tags;
 
-		$this->photoAuthorisationProvider
-			->applySearchabilityFilter($this->query)
+		$this->photoQueryPolicy
+			->applySearchabilityFilter(
+				$this->getRelationQuery(),
+				origin: null,
+				include_nsfw: !Configs::getValueAsBool('hide_nsfw_in_smart_albums')
+			)
 			->where(function (Builder $q) use ($tags) {
 				// Filter for requested tags
 				foreach ($tags as $tag) {
@@ -73,11 +89,11 @@ class HasManyPhotosByTag extends HasManyPhotos
 	 * This method is called by the framework after the unified result of
 	 * photos has been fetched by {@link HasManyPhotosByTag::addEagerConstraints()}.
 	 *
-	 * @param array      $albums   the list of owning albums
-	 * @param Collection $photos   collection of {@link Photo} models which needs to be mapped to the albums
-	 * @param string     $relation the name of the relation
+	 * @param TagAlbum[]                        $albums   the list of owning albums
+	 * @param Collection<int,\App\Models\Photo> $photos   collection of {@link Photo} models which needs to be mapped to the albums
+	 * @param string                            $relation the name of the relation
 	 *
-	 * @return array
+	 * @return array<int,TagAlbum>
 	 *
 	 * @throws NotImplementedException
 	 */
@@ -88,12 +104,12 @@ class HasManyPhotosByTag extends HasManyPhotos
 		}
 		/** @var TagAlbum $album */
 		$album = $albums[0];
-		$sorting = $album->getEffectiveSorting();
+		$sorting = $album->getEffectivePhotoSorting();
 
 		$photos = $photos->sortBy(
-			$sorting->column,
-			in_array($sorting->column, SortingDecorator::POSTPONE_COLUMNS) ? SORT_NATURAL | SORT_FLAG_CASE : SORT_REGULAR,
-			$sorting->order === SortingCriterion::DESC
+			$sorting->column->value,
+			in_array($sorting->column, SortingDecorator::POSTPONE_COLUMNS, true) ? SORT_NATURAL | SORT_FLAG_CASE : SORT_REGULAR,
+			$sorting->order === OrderSortingType::DESC
 		)->values();
 		$album->setRelation($relation, $photos);
 

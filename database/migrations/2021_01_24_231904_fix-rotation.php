@@ -1,30 +1,31 @@
 <?php
 
-use App\Models\Photo;
-use Illuminate\Database\Migrations\Migration;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-class FixRotation extends Migration
-{
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
+
+return new class() extends Migration {
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
-		Photo::where('small', 'x')->update(['small' => '']);
-		Photo::where('small2x', 'x')->update(['small2x' => '']);
-		Photo::where('medium', 'x')->update(['medium' => '']);
-		Photo::where('medium2x', 'x')->update(['medium2x' => '']);
+		DB::table('photos')->where('small', 'x')->update(['small' => '']);
+		DB::table('photos')->where('small2x', 'x')->update(['small2x' => '']);
+		DB::table('photos')->where('medium', 'x')->update(['medium' => '']);
+		DB::table('photos')->where('medium2x', 'x')->update(['medium2x' => '']);
 	}
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
 		// There is no undo
 	}
-}
+};

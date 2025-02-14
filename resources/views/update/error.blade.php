@@ -3,6 +3,7 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="robots" content="noindex">
 
         <title>Error - Database File Versions mismatch</title>
 
@@ -24,7 +25,7 @@
             .flex-center {
                 align-items: center;
                 display: flex;
-                flex-flow: row wrap;;
+                flex-flow: row wrap;
                 justify-content: center;
                 align-content: center;
             }
@@ -103,6 +104,8 @@
             </form>
         </div>
     </div>
+	<!-- Do not change even a single character in the block below without
+	     also updating the checksum in config/secure-headers.php! -->
 	<script>
 	document.addEventListener("DOMContentLoaded", function(event) {
 		document.querySelector("form").addEventListener("submit", function(e){

@@ -1,49 +1,31 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\DTO;
 
-use App\Exceptions\Internal\InvalidOrderDirectionException;
+use App\Enum\ColumnSortingType;
+use App\Enum\OrderSortingType;
+use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
-abstract class SortingCriterion extends DTO
+#[TypeScript()]
+class SortingCriterion extends ArrayableDTO
 {
-	public const ASC = 'ASC';
-	public const DESC = 'DESC';
-
-	public const COLUMN_CREATED_AT = 'created_at';
-	public const COLUMN_TITLE = 'title';
-	public const COLUMN_DESCRIPTION = 'description';
-	public const COLUMN_IS_PUBLIC = 'is_public';
-
-	public const COLUMNS = [
-		self::COLUMN_CREATED_AT,
-		self::COLUMN_TITLE,
-		self::COLUMN_DESCRIPTION,
-		self::COLUMN_IS_PUBLIC,
-	];
-
-	public string $column;
-	public string $order;
-
 	/**
-	 * @throws InvalidOrderDirectionException
+	 * Sorting criterion.
+	 *
+	 * @param ColumnSortingType $column
+	 * @param OrderSortingType  $order
+	 *
+	 * @return void
 	 */
-	public function __construct(string $column, string $order = self::ASC)
+	public function __construct(
+		public ColumnSortingType $column,
+		public OrderSortingType $order)
 	{
-		if ($order !== self::ASC && $order !== self::DESC) {
-			throw new InvalidOrderDirectionException();
-		}
-		$this->column = $column;
-		$this->order = $order;
-	}
-
-	/**
-	 * {@inheritDoc}
-	 */
-	public function toArray(): array
-	{
-		return [
-			'column' => $this->column,
-			'order' => $this->order,
-		];
 	}
 }

@@ -1,6 +1,10 @@
 <?php
 
-/** @noinspection PhpFullyQualifiedNameUsageInspection */
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
 namespace App\Http;
 
@@ -13,11 +17,11 @@ class Kernel extends HttpKernel
 	 *
 	 * These middlewares are run during every request to your application.
 	 *
-	 * @var array
+	 * @var array<int,string>
 	 */
 	protected $middleware = [
 		\App\Http\Middleware\FixStatusCode::class,
-		\Fideloper\Proxy\TrustProxies::class, // required to get proper (i.e. original) client IP instead of proxy IP, if run behind a reverse proxy
+		\Illuminate\Http\Middleware\TrustProxies::class,
 		\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance::class,
 		\Illuminate\Foundation\Http\Middleware\ValidatePostSize::class,
 		\App\Http\Middleware\TrimStrings::class,
@@ -28,10 +32,12 @@ class Kernel extends HttpKernel
 	/**
 	 * The application's route middleware groups.
 	 *
-	 * @var array
+	 * @var array<string,array<int,string>>
 	 */
 	protected $middlewareGroups = [
 		'web' => [
+			'installation:complete',
+			'admin_user:set',
 			'accept_content_type:html',
 			\Illuminate\Cookie\Middleware\EncryptCookies::class,
 			\Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
@@ -40,6 +46,7 @@ class Kernel extends HttpKernel
 			\Illuminate\View\Middleware\ShareErrorsFromSession::class,
 			\App\Http\Middleware\VerifyCsrfToken::class,
 			\Illuminate\Routing\Middleware\SubstituteBindings::class,
+			\App\Http\Middleware\DisableCSP::class,
 		],
 
 		'web-admin' => [
@@ -51,7 +58,7 @@ class Kernel extends HttpKernel
 			\Illuminate\View\Middleware\ShareErrorsFromSession::class,
 			\App\Http\Middleware\VerifyCsrfToken::class,
 			\Illuminate\Routing\Middleware\SubstituteBindings::class,
-			'admin',
+			\App\Http\Middleware\DisableCSP::class,
 		],
 
 		'web-install' => [
@@ -69,19 +76,9 @@ class Kernel extends HttpKernel
 			\Illuminate\View\Middleware\ShareErrorsFromSession::class,
 			\App\Http\Middleware\VerifyCsrfToken::class,
 			\Illuminate\Routing\Middleware\SubstituteBindings::class,
-		],
-
-		'api-admin' => [
-			'accept_content_type:json',
-			'content_type:json',
-			\Illuminate\Cookie\Middleware\EncryptCookies::class,
-			\Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
-			\Illuminate\Session\Middleware\StartSession::class,
-			\Illuminate\Session\Middleware\AuthenticateSession::class,
-			\Illuminate\View\Middleware\ShareErrorsFromSession::class,
-			\App\Http\Middleware\VerifyCsrfToken::class,
-			\Illuminate\Routing\Middleware\SubstituteBindings::class,
-			'admin',
+			\App\Http\Middleware\Latency::class,
+			'response_cache',
+			'album_cache_refresher',
 		],
 	];
 
@@ -90,15 +87,22 @@ class Kernel extends HttpKernel
 	 *
 	 * These middlewares may be assigned to groups or used individually.
 	 *
-	 * @var array
+	 * @var array<string, string>
 	 */
-	protected $routeMiddleware = [
-		'admin' => \App\Http\Middleware\AdminCheck::class,
+	protected $middlewareAliases = [
 		'installation' => \App\Http\Middleware\InstallationStatus::class,
+		'admin_user' => \App\Http\Middleware\AdminUserStatus::class,
 		'migration' => \App\Http\Middleware\MigrationStatus::class,
-		'local_storage' => \App\Http\Middleware\LocalStorageOnly::class,
 		'content_type' => \App\Http\Middleware\ContentType::class,
 		'accept_content_type' => \App\Http\Middleware\AcceptContentType::class,
-		'redirect-legacy-id' => \App\Http\Middleware\RedirectLegacyPhotoID::class,
+		'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
+		'login_required_v1' => \App\Legacy\V1\Middleware\LoginRequiredV1::class, // remove me in non-legacy build
+		'login_required' => \App\Http\Middleware\LoginRequired::class,
+		'cache_control' => \App\Http\Middleware\Caching\CacheControl::class,
+		'support' => \LycheeVerify\Http\Middleware\VerifySupporterStatus::class,
+		'config_integrity' => \App\Http\Middleware\ConfigIntegrity::class,
+		'unlock_with_password' => \App\Http\Middleware\UnlockWithPassword::class,
+		'response_cache' => \App\Http\Middleware\Caching\ResponseCache::class,
+		'album_cache_refresher' => \App\Http\Middleware\Caching\AlbumRouteCacheRefresher::class,
 	];
 }

@@ -1,13 +1,18 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Exceptions;
 
 /**
  * MediaFileOperationException.
  *
  * Indicates any error related to media files.
- * This includes error like moving/copying media files, processing media files,
- * metadata extraction, image manipulation, etc.
+ * This includes error like moving/copying media files, etc.
  * Returns status code 500 (Internal server error) to an HTTP client.
  *
  * As this exception reports a 5xx code (opposed to a 4xx code) this
@@ -24,7 +29,7 @@ namespace App\Exceptions;
  */
 class MediaFileOperationException extends FileOperationException
 {
-	public function __construct(string $msg, \Throwable $previous = null)
+	public function __construct(string $msg, ?\Throwable $previous = null)
 	{
 		parent::__construct($msg, $previous);
 	}

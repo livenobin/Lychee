@@ -1,40 +1,25 @@
 <?php
 
-/** @noinspection PhpUndefinedClassInspection */
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-use App\Models\Configs;
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Support\Facades\DB;
+use App\Legacy\BaseConfigMigration;
 
-class ConfigMapProviders extends Migration
-{
-	/**
-	 * Run the migrations.
-	 *
-	 * @return void
-	 */
-	public function up()
+return new class() extends BaseConfigMigration {
+	public function getConfigs(): array
 	{
-		defined('MAP_PROVIDERS') or define('MAP_PROVIDERS', 'Wikimedia|OpenStreetMap.org|OpenStreetMap.de|OpenStreetMap.fr|RRZE');
-
-		DB::table('configs')->insert([
+		return [
 			[
 				'key' => 'map_provider',
 				'value' => 'Wikimedia',
-				'confidentiality' => 0,
+				'confidentiality' => '0',
 				'cat' => 'Mod Map',
-				'type_range' => MAP_PROVIDERS,
+				'type_range' => 'Wikimedia|OpenStreetMap.org|OpenStreetMap.de|OpenStreetMap.fr|RRZE',
+				'description' => '',
 			],
-		]);
+		];
 	}
-
-	/**
-	 * Reverse the migrations.
-	 *
-	 * @return void
-	 */
-	public function down()
-	{
-		Configs::where('key', '=', 'map_provider')->delete();
-	}
-}
+};

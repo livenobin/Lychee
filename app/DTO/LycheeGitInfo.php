@@ -1,38 +1,30 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\DTO;
 
-class LycheeGitInfo extends DTO
+use App\Metadata\Versions\GitHubVersion;
+
+class LycheeGitInfo extends ArrayableDTO
 {
 	public string $branch;
-	public ?string $commit;
-	public ?string $additional;
+	public string $commit;
+	public string $additional;
 
-	public function __construct(string $branch, ?string $commit = null, ?string $additional = null)
+	public function __construct(GitHubVersion $gvc)
 	{
-		$this->branch = $branch;
-		$this->commit = $commit;
-		$this->additional = $additional;
+		$this->branch = $gvc->localBranch ?? '??';
+		$this->commit = $gvc->localHead ?? '??';
+		$this->additional = $gvc->getBehindTest();
 	}
 
 	public function toString(): string
 	{
-		$ret = $this->branch;
-		$ret .= $this->commit ? ' (' . $this->commit . ')' : '';
-		$ret .= $this->additional ? ' -- ' . $this->additional : '';
-
-		return $ret;
-	}
-
-	/**
-	 * {@inheritDoc}
-	 */
-	public function toArray(): array
-	{
-		return [
-			'branch' => $this->branch,
-			'commit' => $this->commit,
-			'additional' => $this->additional,
-		];
+		return sprintf('%s (%s) -- %s', $this->branch, $this->commit, $this->additional);
 	}
 }

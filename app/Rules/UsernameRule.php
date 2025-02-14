@@ -1,11 +1,17 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Rules;
 
 class UsernameRule extends StringRule
 {
-	public function __construct()
+	public function __construct(bool $nullable = false)
 	{
-		parent::__construct(false, 100);
+		parent::__construct($nullable, 100);
 	}
 }

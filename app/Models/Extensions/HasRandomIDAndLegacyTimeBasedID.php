@@ -1,8 +1,14 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models\Extensions;
 
-use App\Contracts\HasRandomID;
+use App\Constants\RandomID;
 use App\Exceptions\InsufficientEntropyException;
 use App\Exceptions\Internal\NotImplementedException;
 use App\Exceptions\Internal\TimeBasedIdException;
@@ -10,11 +16,12 @@ use App\Models\Configs;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\InvalidCastException;
 use Illuminate\Database\Eloquent\JsonEncodingException;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 
 /**
  * Trait HasTimeBasedID.
+ *
+ * @template TModel of \Illuminate\Database\Eloquent\Model
  *
  * Inspired by https://emymbenoun.medium.com/how-to-use-uuids-instead-of-auto-increment-ids-in-your-laravel-app-2e6cc045f6c1.
  */
@@ -36,6 +43,8 @@ trait HasRandomIDAndLegacyTimeBasedID
 	 * @param bool $value
 	 *
 	 * @throws NotImplementedException
+	 *
+	 * @codeCoverageIgnore setter should not be used
 	 */
 	public function setIncrementing($value)
 	{
@@ -56,10 +65,10 @@ trait HasRandomIDAndLegacyTimeBasedID
 	 */
 	public function setAttribute($key, $value): mixed
 	{
-		if ($key == $this->getKeyName()) {
+		if ($key === $this->getKeyName()) {
 			throw new NotImplementedException('must not set primary key explicitly, primary key will be set on first insert');
 		}
-		if ($key == HasRandomID::LEGACY_ID_NAME) {
+		if ($key === RandomID::LEGACY_ID_NAME) {
 			throw new NotImplementedException('must not set legacy key explicitly, legacy key will be set on first insert');
 		}
 
@@ -70,10 +79,10 @@ trait HasRandomIDAndLegacyTimeBasedID
 	 * Performs the `INSERT` operation of the model.
 	 *
 	 * This method also tries to create a unique, time-based ID.
-	 * The method is mostly copied & pasted from {@link Model::performInsert()}
+	 * The method is mostly copied & pasted from {@link \Illuminate\Database\Eloquent\Model::performInsert()}
 	 * with adoptions regarding key generation.
 	 *
-	 * @param Builder $query
+	 * @param Builder<static> $query
 	 *
 	 * @return bool true on success
 	 *
@@ -83,7 +92,9 @@ trait HasRandomIDAndLegacyTimeBasedID
 	protected function performInsert(Builder $query): bool
 	{
 		if ($this->fireModelEvent('creating') === false) {
+			// @codeCoverageIgnoreStart
 			return false;
+			// @codeCoverageIgnoreEnd
 		}
 
 		// First we'll need to create a fresh query instance and touch the creation and
@@ -104,10 +115,11 @@ trait HasRandomIDAndLegacyTimeBasedID
 				$this->generateKey();
 				$attributes = $this->getAttributesForInsert();
 				$result = $query->insert($attributes);
+				// @codeCoverageIgnoreStart
 			} catch (QueryException $e) {
 				$lastException = $e;
 				$errorCode = $e->getCode();
-				if ($errorCode == 23000 || $errorCode == 23505) {
+				if ($errorCode === 23000 || $errorCode === 23505 || $errorCode === '23000' || $errorCode === '23505') {
 					// houston, we have a duplicate entry problem
 					// Our ids are based on current system time, so
 					// wait randomly up to 1s before retrying.
@@ -116,11 +128,14 @@ trait HasRandomIDAndLegacyTimeBasedID
 				} else {
 					throw $e;
 				}
+				// @codeCoverageIgnoreEnd
 			}
 		} while ($retry && $retryCounter > 0);
 
 		if ($retryCounter === 0) {
+			// @codeCoverageIgnoreStart
 			throw new TimeBasedIdException('unable to persist model to DB after 5 unsuccessful attempts', $lastException);
+			// @codeCoverageIgnoreEnd
 		}
 
 		// We will go ahead and set the exists property to true, so that it is set when
@@ -150,20 +165,29 @@ trait HasRandomIDAndLegacyTimeBasedID
 		// The other characters (a-z, A-Z, 0-9) are legal within an URL.
 		// As the number of bytes is divisible by 3, no trailing `=` occurs.
 		try {
-			$id = strtr(base64_encode(random_bytes(3 * HasRandomID::ID_LENGTH / 4)), '+/', '-_');
+			$id = strtr(base64_encode(random_bytes(3 * RandomID::ID_LENGTH / 4)), '+/', '-_');
+			// Last character whould not be a - for some version of android.
+			// this will reduce the entropy and induce a slight bias but we are still
+			// above the birthday bounds.
+			if ($id[23] === '-') {
+				$id[23] = '0';
+			}
+			// @codeCoverageIgnoreStart
 		} catch (\Exception $e) {
 			throw new InsufficientEntropyException($e);
 		}
-
+		// @codeCoverageIgnoreEnd
 		if (
-			PHP_INT_MAX == 2147483647
-			|| Configs::get_value('force_32bit_ids', '0') === '1'
+			PHP_INT_MAX === 2147483647 ||
+			Configs::getValueAsBool('force_32bit_ids')
 		) {
 			// For 32-bit installations, we can only afford to store the
 			// full seconds in id.  The calling code needs to be able to
 			// handle duplicate ids.  Note that this also exposes us to
 			// the year 2038 problem.
+			// @codeCoverageIgnoreStart
 			$legacyID = sprintf('%010d', microtime(true));
+		// @codeCoverageIgnoreEnd
 		} else {
 			// Ensure 4 digits after the decimal point, 15 characters
 			// total (including the decimal point), 0-padded on the
@@ -173,6 +197,6 @@ trait HasRandomIDAndLegacyTimeBasedID
 			$legacyID = str_replace('.', '', $legacyID);
 		}
 		$this->attributes[$this->getKeyName()] = $id;
-		$this->attributes[HasRandomID::LEGACY_ID_NAME] = intval($legacyID);
+		$this->attributes[RandomID::LEGACY_ID_NAME] = intval($legacyID);
 	}
 }

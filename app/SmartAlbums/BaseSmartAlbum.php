@@ -1,20 +1,32 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\SmartAlbums;
 
-use App\Actions\PhotoAuthorisationProvider;
-use App\Contracts\AbstractAlbum;
-use App\Contracts\InternalLycheeException;
+use App\Contracts\Exceptions\InternalLycheeException;
+use App\Contracts\Models\AbstractAlbum;
 use App\DTO\PhotoSortingCriterion;
+use App\Enum\SmartAlbumType;
+use App\Exceptions\ConfigurationKeyMissingException;
+use App\Exceptions\Internal\FrameworkException;
 use App\Exceptions\Internal\InvalidOrderDirectionException;
 use App\Exceptions\Internal\InvalidQueryModelException;
 use App\Exceptions\InvalidPropertyException;
+use App\Models\AccessPermission;
 use App\Models\Configs;
 use App\Models\Extensions\SortingDecorator;
 use App\Models\Extensions\Thumb;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Models\Extensions\UTCBasedTimes;
 use App\Models\Photo;
+use App\Policies\PhotoQueryPolicy;
 use App\SmartAlbums\Utils\MimicModel;
+use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -26,49 +38,62 @@ use Illuminate\Database\Eloquent\Collection;
  * Smart albums are never explicit "parent albums" of photos.
  * Photos belong to these albums due to certain properties like being
  * starred, being recently added, etc.
- *
- * @property string $id
  */
 abstract class BaseSmartAlbum implements AbstractAlbum
 {
 	use MimicModel;
 	use UTCBasedTimes;
+	use ToArrayThrowsNotImplemented;
 
-	protected PhotoAuthorisationProvider $photoAuthorisationProvider;
+	protected PhotoQueryPolicy $photoQueryPolicy;
 	protected string $id;
 	protected string $title;
-	protected bool $isPublic;
-	protected bool $isDownloadable;
-	protected bool $isShareButtonVisible;
-	protected ?Thumb $thumb;
-	protected Collection $photos;
+	protected ?Thumb $thumb = null;
+	/** @var ?Collection<int,Photo> */
+	protected ?Collection $photos = null;
 	protected \Closure $smartPhotoCondition;
+	protected AccessPermission|null $publicPermissions;
 
-	protected function __construct(string $id, string $title, bool $isPublic, \Closure $smartCondition)
+	/**
+	 * @throws ConfigurationKeyMissingException
+	 * @throws FrameworkException
+	 */
+	protected function __construct(SmartAlbumType $id, \Closure $smartCondition)
 	{
-		$this->photoAuthorisationProvider = resolve(PhotoAuthorisationProvider::class);
-		$this->id = $id;
-		$this->title = $title;
-		$this->isPublic = $isPublic;
-		$this->isDownloadable = Configs::get_value('downloadable', '0') === '1';
-		$this->isShareButtonVisible = Configs::get_value('share_button_visible', '0') === '1';
-		$this->thumb = null;
-		$this->smartPhotoCondition = $smartCondition;
+		try {
+			$this->photoQueryPolicy = resolve(PhotoQueryPolicy::class);
+			$this->id = $id->value;
+			$this->title = __('gallery.smart_album.' . strtolower($id->name)) ?? $id->name;
+			$this->smartPhotoCondition = $smartCondition;
+			/** @var AccessPermission|null $perm */
+			$perm = AccessPermission::query()->where('base_album_id', '=', $id->value)->first();
+			$this->publicPermissions = $perm;
+			// @codeCoverageIgnoreStart
+		} catch (BindingResolutionException $e) {
+			throw new FrameworkException('Laravel\'s service container', $e);
+		}
+		// @codeCoverageIgnoreEnd
 	}
 
 	/**
+	 * @return \App\Eloquent\FixedQueryBuilder<Photo>
+	 *
 	 * @throws InternalLycheeException
 	 */
 	public function photos(): Builder
 	{
-		return $this->photoAuthorisationProvider
+		$query = $this->photoQueryPolicy
 			->applySearchabilityFilter(
-				Photo::query()->with(['album', 'size_variants', 'size_variants.sym_links'])
+				query: Photo::query()->with(['album', 'size_variants', 'size_variants.sym_links']),
+				origin: null,
+				include_nsfw: !Configs::getValueAsBool('hide_nsfw_in_smart_albums')
 			)->where($this->smartPhotoCondition);
+
+		return $query;
 	}
 
 	/**
-	 * @return Collection<Photo>
+	 * @return Collection<int,Photo>
 	 *
 	 * @throws InvalidOrderDirectionException
 	 * @throws InvalidQueryModelException
@@ -77,14 +102,27 @@ abstract class BaseSmartAlbum implements AbstractAlbum
 	{
 		// Cache query result for later use
 		// (this mimics the behaviour of relations of true Eloquent models)
-		if (!isset($this->photos)) {
+		if ($this->photos === null) {
 			$sorting = PhotoSortingCriterion::createDefault();
 
-			$this->photos = (new SortingDecorator($this->photos()))
-				->orderBy('photos.' . $sorting->column, $sorting->order)
+			/** @var \Illuminate\Database\Eloquent\Collection<int,\App\Models\Photo>&iterable $photos */
+			$photos = (new SortingDecorator($this->photos()))
+				->orderPhotosBy($sorting->column, $sorting->order)
 				->get();
+			$this->photos = $photos;
 		}
 
+		return $this->photos;
+	}
+
+	/**
+	 * Similar to the function above.
+	 * The big difference is that we do not check if it is null or not.
+	 *
+	 * @return Collection<int,Photo>|null
+	 */
+	public function getPhotos(): ?Collection
+	{
 		return $this->photos;
 	}
 
@@ -94,60 +132,47 @@ abstract class BaseSmartAlbum implements AbstractAlbum
 	 */
 	protected function getThumbAttribute(): ?Thumb
 	{
-		if (!isset($this->thumb)) {
-			/*
-			 * Note, `photos()` already applies a "security filter" and
-			 * only returns photos which are accessible by the current
-			 * user.
-			 */
-			$this->thumb = Thumb::createFromQueryable(
+		/*
+			* Note, `photos()` already applies a "security filter" and
+			* only returns photos which are accessible by the current
+			* user.
+			*/
+		$this->thumb ??= Configs::getValueAsBool('SA_random_thumbs')
+			// @codeCoverageIgnoreStart
+			? Thumb::createFromRandomQueryable($this->photos())
+			// @codeCoverageIgnoreEnd
+			: $this->thumb = Thumb::createFromQueryable(
 				$this->photos(),
 				PhotoSortingCriterion::createDefault()
 			);
-		}
 
 		return $this->thumb;
 	}
 
-	/**
-	 * @throws InvalidPropertyException
-	 * @throws InvalidQueryModelException
-	 */
-	public function toArray(): array
+	public function public_permissions(): ?AccessPermission
 	{
-		// The properties `thumb` and `photos` are intentionally treated
-		// differently.
-		//
-		//  1. The result always includes `thumb`, hence we call the
-		//     getter method to ensure that the property is initialized, if it
-		//     has not already been accessed before.
-		//  2. The result only includes the collection `photos`, if it has
-		//     already explicitly been accessed earlier and thus is initialized.
-		//
-		// Rationale:
-		//
-		//  1. This resembles the behaviour of a real Eloquent model, if the
-		//     attribute `thumb` was part of the `append`-property of model.
-		//  2. This resembles the behaviour of a real Eloquent model for
-		//     one-to-many relations.
-		//     A relation is only included in the array representation, if the
-		//     relation has been loaded.
-		//     This avoids unnecessary hydration of photos if the album is
-		//     only used within a listing of sub-albums.
+		return $this->publicPermissions;
+	}
 
-		$result = [
-			'id' => $this->id,
-			'title' => $this->title,
-			'is_public' => $this->isPublic,
-			'is_downloadable' => $this->isDownloadable,
-			'is_share_button_visible' => $this->isShareButtonVisible,
-			'thumb' => $this->getThumbAttribute(),
-		];
-
-		if (isset($this->photos)) {
-			$result['photos'] = $this->photos->toArray();
+	public function setPublic(): void
+	{
+		if ($this->publicPermissions !== null) {
+			return;
 		}
 
-		return $result;
+		$this->publicPermissions = AccessPermission::ofPublic();
+		$this->publicPermissions->base_album_id = $this->id;
+		$this->publicPermissions->save();
+	}
+
+	public function setPrivate(): void
+	{
+		if ($this->publicPermissions === null) {
+			return;
+		}
+
+		$perm = $this->publicPermissions;
+		$this->publicPermissions = null;
+		$perm->delete();
 	}
 }

@@ -1,31 +1,32 @@
 <?php
 
-use App\Models\Configs;
-use Illuminate\Database\Migrations\Migration;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-class FixConfidentiality extends Migration
-{
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
+
+return new class() extends Migration {
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
-		Configs::where('key', 'editor_enabled')->update(['confidentiality' => '0']);
-		Configs::where('key', 'upload_processing_limit')->update(['confidentiality' => '0']);
-		Configs::where('key', 'public_photos_hidden')->update(['confidentiality' => '0']);
+		DB::table('configs')->where('key', 'editor_enabled')->update(['confidentiality' => '0']);
+		DB::table('configs')->where('key', 'upload_processing_limit')->update(['confidentiality' => '0']);
+		DB::table('configs')->where('key', 'public_photos_hidden')->update(['confidentiality' => '0']);
 	}
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
-		Configs::where('key', 'editor_enabled')->update(['confidentiality' => '2']);
-		Configs::where('key', 'upload_processing_limit')->update(['confidentiality' => '2']);
-		Configs::where('key', 'public_photos_hidden')->update(['confidentiality' => '2']);
+		DB::table('configs')->where('key', 'editor_enabled')->update(['confidentiality' => '2']);
+		DB::table('configs')->where('key', 'upload_processing_limit')->update(['confidentiality' => '2']);
+		DB::table('configs')->where('key', 'public_photos_hidden')->update(['confidentiality' => '2']);
 	}
-}
+};

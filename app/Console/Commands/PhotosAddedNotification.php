@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Console\Commands;
 
 use App\Mail\PhotosAdded;
@@ -9,7 +15,8 @@ use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\Mail;
-use Symfony\Component\Console\Exception\ExceptionInterface as SymfonyConsoleException;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 
 class PhotosAddedNotification extends Command
 {
@@ -28,23 +35,13 @@ class PhotosAddedNotification extends Command
 	protected $description = 'Send email notifications for newly added photos';
 
 	/**
-	 * Create a new command instance.
-	 *
-	 * @throws SymfonyConsoleException
-	 */
-	public function __construct()
-	{
-		parent::__construct();
-	}
-
-	/**
 	 * Execute the console command.
 	 *
 	 * @return int
 	 */
 	public function handle(): int
 	{
-		if (Configs::get_Value('new_photos_notification', '0') !== '1') {
+		if (!Configs::getValueAsBool('new_photos_notification')) {
 			return 0;
 		}
 		$users = User::query()->whereNotNull('email')->get();
@@ -55,12 +52,12 @@ class PhotosAddedNotification extends Command
 
 			/** @var DatabaseNotification $notification */
 			foreach ($user->unreadNotifications()->get() as $notification) {
-				/** @var Photo $photo */
+				/** @var Photo|null $photo */
 				$photo = Photo::query()
 					->with(['size_variants', 'size_variants.sym_links'])
 					->find($notification->data['id']);
 
-				if ($photo) {
+				if ($photo !== null) {
 					if (!isset($photos[$photo->album_id])) {
 						$photos[$photo->album_id] = [
 							'name' => $photo->album->title,
@@ -69,6 +66,12 @@ class PhotosAddedNotification extends Command
 					}
 
 					$thumbUrl = $photo->size_variants->getThumb()?->url;
+
+					// Mail clients do not like relative paths.
+					// if url does not start with 'http', it is not absolute...
+					if (!Str::startsWith('http', $thumbUrl)) {
+						$thumbUrl = URL::asset($thumbUrl);
+					}
 
 					// If the url config doesn't contain a trailing slash then add it
 					if (str_ends_with(config('app.url'), '/')) {

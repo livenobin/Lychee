@@ -1,13 +1,21 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Rules;
 
-use App\Contracts\HasRandomID;
-use App\Factories\AlbumFactory;
-use Illuminate\Contracts\Validation\Rule;
+use App\Constants\RandomID;
+use App\Enum\SmartAlbumType;
+use Illuminate\Contracts\Validation\ValidationRule;
 
-class AlbumIDRule implements Rule
+class AlbumIDRule implements ValidationRule
 {
+	use ValidateTrait;
+
 	protected bool $isNullable;
 
 	public function __construct(bool $isNullable)
@@ -18,12 +26,12 @@ class AlbumIDRule implements Rule
 	/**
 	 * {@inheritDoc}
 	 */
-	public function passes($attribute, $value): bool
+	public function passes(string $attribute, mixed $value): bool
 	{
 		return
 			($value === null && $this->isNullable) ||
-			strlen($value) === HasRandomID::ID_LENGTH ||
-			array_key_exists($value, AlbumFactory::BUILTIN_SMARTS);
+			strlen($value) === RandomID::ID_LENGTH ||
+			SmartAlbumType::tryFrom($value) !== null;
 	}
 
 	/**
@@ -31,8 +39,9 @@ class AlbumIDRule implements Rule
 	 */
 	public function message(): string
 	{
-		return ':attribute ' .
-			' must either be null, a string with ' . HasRandomID::ID_LENGTH . ' characters or one of the built-in IDs ' .
-			implode(', ', array_keys(AlbumFactory::BUILTIN_SMARTS));
+		return ':attribute must be' .
+			($this->isNullable ? ' either null, or' : '') .
+			' a string with ' . RandomID::ID_LENGTH . ' characters or one of the built-in IDs ' .
+			implode(', ', SmartAlbumType::values());
 	}
 }

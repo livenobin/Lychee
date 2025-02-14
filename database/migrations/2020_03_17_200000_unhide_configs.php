@@ -1,31 +1,30 @@
 <?php
 
-/** @noinspection PhpUndefinedClassInspection */
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-use App\Models\Configs;
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
 
-class UnhideConfigs extends Migration
-{
+return new class() extends Migration {
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
-		Configs::where('key', 'SL_enable')->update(['confidentiality' => '2']);
-		Configs::where('key', 'SL_for_admin')->update(['confidentiality' => '2']);
+		DB::table('configs')->where('key', 'SL_enable')->update(['confidentiality' => '2']);
+		DB::table('configs')->where('key', 'SL_for_admin')->update(['confidentiality' => '2']);
 	}
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
-		Configs::where('key', 'SL_enable')->update(['confidentiality' => '0']);
-		Configs::where('key', 'SL_for_admin')->update(['confidentiality' => '0']);
+		DB::table('configs')->where('key', 'SL_enable')->update(['confidentiality' => '0']);
+		DB::table('configs')->where('key', 'SL_for_admin')->update(['confidentiality' => '0']);
 	}
-}
+};

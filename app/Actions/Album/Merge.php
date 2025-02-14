@@ -1,13 +1,19 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\Album;
 
 use App\Exceptions\Internal\QueryBuilderException;
 use App\Exceptions\ModelDBException;
 use App\Models\Album;
 use App\Models\Photo;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Collection;
 
 class Merge extends Action
 {
@@ -15,8 +21,8 @@ class Merge extends Action
 	 * Merges the content of the given source albums (photos and sub-albums)
 	 * into the target.
 	 *
-	 * @param Album             $targetAlbum
-	 * @param Collection<Album> $albums
+	 * @param Album                 $targetAlbum
+	 * @param Collection<int,Album> $albums
 	 *
 	 * @throws ModelNotFoundException
 	 * @throws ModelDBException

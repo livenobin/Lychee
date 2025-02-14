@@ -1,12 +1,18 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Exceptions\Handlers;
 
-use App\Contracts\HttpExceptionHandler;
+use App\Contracts\Exceptions\Handlers\HttpExceptionHandler;
 use App\Exceptions\MigrationAlreadyCompletedException;
 use App\Exceptions\MigrationRequiredException;
-use App\Redirections\ToHome;
-use App\Redirections\ToMigration;
+use App\Http\Redirections\ToHome;
+use App\Http\Redirections\ToMigration;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface as HttpException;
 
@@ -52,9 +58,10 @@ class MigrationHandler implements HttpExceptionHandler
 		try {
 			$redirectResponse = $this->toMigration ? ToMigration::go() : ToHome::go();
 			$contentType = $defaultResponse->headers->get('Content-Type');
-			if (!empty($contentType)) {
+			if ($contentType !== null && $contentType !== '') {
 				$redirectResponse->headers->set('Content-Type', $contentType);
-				$redirectResponse->setContent($defaultResponse->getContent());
+				$content = $defaultResponse->getContent();
+				$redirectResponse->setContent($content !== false ? $content : null);
 			}
 
 			return $redirectResponse;

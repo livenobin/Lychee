@@ -1,5 +1,16 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
+/**
+ * Basic PanicAttack class.
+ *
+ * Used only in case of emergency: e.g. vendor not found
+ */
 class PanicAttack
 {
 	private $title = '';
@@ -128,12 +139,5 @@ class PanicAttack
 				$this->$fun();
 			}
 		}
-		// var_dump($error_message);
-		// if nothing has been catched so far
-		// $this->title = 'Error !';
-		// $this->code = 500;
-		// $this->message = 'Oups, something went wrong !';
-		// $this->message = $last_error['message'];
-		// $this->displaySimpleError();
 	}
 }

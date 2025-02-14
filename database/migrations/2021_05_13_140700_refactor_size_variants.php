@@ -1,12 +1,17 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-class RefactorSizeVariants extends Migration
-{
+return new class() extends Migration {
 	private const PHOTOS_TABLE_NAME = 'photos';
 	private const ID_COL_NAME = 'id';
 	private const SMALL_COL_NAME = 'small';
@@ -24,10 +29,8 @@ class RefactorSizeVariants extends Migration
 
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
 		Schema::table(self::PHOTOS_TABLE_NAME, function (Blueprint $table) {
 			$table->integer(self::SMALL_WIDTH_COL_NAME)->unsigned()->nullable()->default(null);
@@ -50,11 +53,10 @@ class RefactorSizeVariants extends Migration
 		])->lazyById();
 
 		foreach ($photos as $photo) {
-			$this->convertUp($photo->{self::SMALL_COL_NAME}, $smallWidth, $smallHeight);
-			$this->convertUp($photo->{self::SMALL2X_COL_NAME}, $small2xWidth, $small2xHeight);
-			$this->convertUp($photo->{self::MEDIUM_COL_NAME}, $mediumWidth, $mediumHeight);
-			$this->convertUp($photo->{self::MEDIUM2X_COL_NAME}, $medium2xWidth, $medium2xHeight);
-
+			$this->convertUp($photo->{self::SMALL_COL_NAME}, $smallWidth, $smallHeight); /** @phpstan-ignore-line */
+			$this->convertUp($photo->{self::SMALL2X_COL_NAME}, $small2xWidth, $small2xHeight); /** @phpstan-ignore-line */
+			$this->convertUp($photo->{self::MEDIUM_COL_NAME}, $mediumWidth, $mediumHeight); /** @phpstan-ignore-line */
+			$this->convertUp($photo->{self::MEDIUM2X_COL_NAME}, $medium2xWidth, $medium2xHeight); /** @phpstan-ignore-line */
 			DB::table(self::PHOTOS_TABLE_NAME)->where(self::ID_COL_NAME, '=', $photo->id)->update([
 				self::SMALL_WIDTH_COL_NAME => $smallWidth,
 				self::SMALL_HEIGHT_COL_NAME => $smallHeight,
@@ -82,16 +84,14 @@ class RefactorSizeVariants extends Migration
 	protected function convertUp(string $sizeString, ?int &$width, ?int &$height): void
 	{
 		$size = explode('x', $sizeString);
-		$width = ($size !== false && count($size) === 2) ? (int) ($size[0]) : null;
-		$height = ($size !== false && count($size) === 2) ? (int) ($size[1]) : null;
+		$width = count($size) === 2 ? (int) ($size[0]) : null;
+		$height = count($size) === 2 ? (int) ($size[1]) : null;
 	}
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
 		Schema::table(self::PHOTOS_TABLE_NAME, function (Blueprint $table) {
 			$table->string(self::SMALL_COL_NAME)->default('');
@@ -114,9 +114,13 @@ class RefactorSizeVariants extends Migration
 		])->lazyById();
 
 		foreach ($photos as $photo) {
+			/** @phpstan-ignore-next-line */
 			$smallSize = $this->convertDown($photo->{self::SMALL_WIDTH_COL_NAME}, $photo->{self::SMALL_HEIGHT_COL_NAME});
+			/** @phpstan-ignore-next-line */
 			$small2xSize = $this->convertDown($photo->{self::SMALL2X_WIDTH_COL_NAME}, $photo->{self::SMALL2X_HEIGHT_COL_NAME});
+			/** @phpstan-ignore-next-line */
 			$mediumSize = $this->convertDown($photo->{self::MEDIUM_WIDTH_COL_NAME}, $photo->{self::MEDIUM_HEIGHT_COL_NAME});
+			/** @phpstan-ignore-next-line */
 			$medium2xSize = $this->convertDown($photo->{self::MEDIUM2X_WIDTH_COL_NAME}, $photo->{self::MEDIUM2X_HEIGHT_COL_NAME});
 
 			DB::table(self::PHOTOS_TABLE_NAME)->where(self::ID_COL_NAME, '=', $photo->id)->update([
@@ -147,4 +151,4 @@ class RefactorSizeVariants extends Migration
 	{
 		return ($width !== null) ? $width . 'x' . $height : '';
 	}
-}
+};

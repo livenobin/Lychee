@@ -1,22 +1,25 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-class RemoveMaxMinTakestamps extends Migration
-{
+return new class() extends Migration {
 	private const ALBUMS = 'albums';
 	private const MIN = 'min_takestamp';
 	private const MAX = 'max_takestamp';
 
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
 		Schema::table(self::ALBUMS, function (Blueprint $table) {
 			$table->dropColumn(self::MIN);
@@ -28,10 +31,8 @@ class RemoveMaxMinTakestamps extends Migration
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
 		Schema::table(self::ALBUMS, function ($table) {
 			$table->timestamp(self::MIN)->nullable()->after('description');
@@ -70,4 +71,4 @@ class RemoveMaxMinTakestamps extends Migration
 				]);
 		}
 	}
-}
+};

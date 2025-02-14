@@ -1,22 +1,31 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Relations;
 
-use App\Actions\PhotoAuthorisationProvider;
-use App\Contracts\InternalLycheeException;
-use App\DTO\SortingCriterion;
+use App\Contracts\Exceptions\InternalLycheeException;
+use App\Eloquent\FixedQueryBuilder;
+use App\Enum\OrderSortingType;
 use App\Exceptions\Internal\InvalidOrderDirectionException;
 use App\Models\Album;
 use App\Models\Extensions\SortingDecorator;
 use App\Models\Photo;
-use Doctrine\Instantiator\Exception\InvalidArgumentException;
+use App\Policies\PhotoQueryPolicy;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\InvalidCastException;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * @extends HasManyBidirectionally<Photo,Album>
+ */
 class HasManyChildPhotos extends HasManyBidirectionally
 {
-	protected PhotoAuthorisationProvider $photoAuthorisationProvider;
+	protected PhotoQueryPolicy $photoQueryPolicy;
 
 	public function __construct(Album $owningAlbum)
 	{
@@ -24,7 +33,7 @@ class HasManyChildPhotos extends HasManyBidirectionally
 		// the parent constructor.
 		// The parent constructor calls `addConstraints` and thus our own
 		// attributes must be initialized by then
-		$this->photoAuthorisationProvider = resolve(PhotoAuthorisationProvider::class);
+		$this->photoQueryPolicy = resolve(PhotoQueryPolicy::class);
 		parent::__construct(
 			Photo::query(),
 			$owningAlbum,
@@ -35,40 +44,73 @@ class HasManyChildPhotos extends HasManyBidirectionally
 	}
 
 	/**
+	 * @return FixedQueryBuilder<Photo>
+	 */
+	protected function getRelationQuery(): FixedQueryBuilder
+	{
+		/**
+		 * We know that the internal query is of type `FixedQueryBuilder`,
+		 * because it was set in the constructor as `Photo::query()`.
+		 *
+		 * @noinspection PhpIncompatibleReturnTypeInspection
+		 *
+		 * @phpstan-ignore-next-line
+		 */
+		return $this->query;
+	}
+
+	public function getParent(): Album
+	{
+		/**
+		 * We know that the internal query is of type `Album`,
+		 * because it was set in the constructor as `$owningAlbum`.
+		 *
+		 * @noinspection PhpIncompatibleReturnTypeInspection
+		 */
+		return $this->parent;
+	}
+
+	/**
 	 * @throws InternalLycheeException
 	 */
 	public function addConstraints()
 	{
 		if (static::$constraints) {
 			parent::addConstraints();
-			$this->photoAuthorisationProvider->applyVisibilityFilter($this->query);
+			$this->photoQueryPolicy->applyVisibilityFilter($this->getRelationQuery());
 		}
 	}
 
 	/**
+	 * @param Album[] $models
+	 *
 	 * @throws InternalLycheeException
 	 */
 	public function addEagerConstraints(array $models)
 	{
 		parent::addEagerConstraints($models);
-		$this->photoAuthorisationProvider->applyVisibilityFilter($this->query);
+		$this->photoQueryPolicy->applyVisibilityFilter($this->getRelationQuery());
 	}
 
 	/**
+	 * @return Collection<int,Photo>
+	 *
 	 * @throws InvalidOrderDirectionException
 	 */
-	public function getResults()
+	public function getResults(): Collection
 	{
 		if (is_null($this->getParentKey())) {
 			return $this->related->newCollection();
 		}
 
-		/** @var SortingCriterion $albumSorting */
-		$albumSorting = $this->parent->getEffectiveSorting();
+		$albumSorting = $this->getParent()->getEffectivePhotoSorting();
 
-		return (new SortingDecorator($this->query))
-			->orderBy(
-				'photos.' . $albumSorting->column,
+		/** @var SortingDecorator<Photo> */
+		$sortingDecorator = new SortingDecorator($this->query);
+
+		return $sortingDecorator
+			->orderPhotosBy(
+				$albumSorting->column,
 				$albumSorting->order
 			)
 			->get();
@@ -77,13 +119,12 @@ class HasManyChildPhotos extends HasManyBidirectionally
 	/**
 	 * Match the eagerly loaded results to their parents.
 	 *
-	 * @param array      $models   an array of parent models
-	 * @param Collection $results  the unified collection of all child models of all parent models
-	 * @param string     $relation the name of the relation from the parent to the child models
+	 * @param Album[]               $models   an array of parent models
+	 * @param Collection<int,Photo> $results  the unified collection of all child models of all parent models
+	 * @param string                $relation the name of the relation from the parent to the child models
 	 *
-	 * @return array
+	 * @return array<int,Album>
 	 *
-	 * @throws InvalidArgumentException
 	 * @throws \LogicException
 	 * @throws InvalidCastException
 	 */
@@ -97,14 +138,14 @@ class HasManyChildPhotos extends HasManyBidirectionally
 		/** @var Album $model */
 		foreach ($models as $model) {
 			if (isset($dictionary[$key = $this->getDictionaryKey($model->getAttribute($this->localKey))])) {
-				/** @var Collection $childrenOfModel */
+				/** @var Collection<int,Photo> $childrenOfModel */
 				$childrenOfModel = $this->getRelationValue($dictionary, $key, 'many');
-				$sorting = $model->getEffectiveSorting();
+				$sorting = $model->getEffectivePhotoSorting();
 				$childrenOfModel = $childrenOfModel
 					->sortBy(
-						$sorting->column,
-						in_array($sorting->column, SortingDecorator::POSTPONE_COLUMNS) ? SORT_NATURAL | SORT_FLAG_CASE : SORT_REGULAR,
-						$sorting->order === SortingCriterion::DESC
+						$sorting->column->value,
+						in_array($sorting->column, SortingDecorator::POSTPONE_COLUMNS, true) ? SORT_NATURAL | SORT_FLAG_CASE : SORT_REGULAR,
+						$sorting->order === OrderSortingType::DESC
 					)
 					->values();
 				$model->setRelation($relation, $childrenOfModel);

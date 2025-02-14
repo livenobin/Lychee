@@ -1,51 +1,20 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\SmartAlbums\Utils;
 
-use App\Contracts\InternalLycheeException;
+use App\Contracts\Exceptions\InternalLycheeException;
 use App\Exceptions\Internal\LycheeInvalidArgumentException;
-use Illuminate\Database\Eloquent\JsonEncodingException;
 use Illuminate\Support\Str;
 
 trait MimicModel
 {
 	abstract public function toArray(): array;
-
-	/**
-	 * Serializes this object into an array.
-	 *
-	 * @return array The serialized properties of this object
-	 *
-	 * @throws \JsonException
-	 */
-	public function jsonSerialize(): array
-	{
-		try {
-			return $this->toArray();
-		} catch (\Exception $e) {
-			throw new \JsonException(get_class($this) . '::toArray() failed', 0, $e);
-		}
-	}
-
-	/**
-	 * Convert the model instance to JSON.
-	 *
-	 * The error message is inspired by {@link JsonEncodingException::forModel()}.
-	 *
-	 * @param int $options
-	 *
-	 * @return string
-	 *
-	 * @throws JsonEncodingException
-	 */
-	public function toJson($options = 0): string
-	{
-		try {
-			return json_encode($this->jsonSerialize(), $options | JSON_THROW_ON_ERROR);
-		} catch (\JsonException $e) {
-			throw new JsonEncodingException('Error encoding [' . get_class($this) . '] to JSON', 0, $e);
-		}
-	}
 
 	/**
 	 * Gets a property dynamically.
@@ -62,7 +31,7 @@ trait MimicModel
 	 */
 	public function __get(string $key)
 	{
-		if (empty($key)) {
+		if ($key === '') {
 			throw new LycheeInvalidArgumentException('property name must not be empty');
 		}
 
@@ -71,23 +40,28 @@ trait MimicModel
 		$studlyKey = lcfirst($studlyKey);
 
 		if (method_exists($this, $getter)) {
+			/** @phpstan-ignore-next-line PhpStan does not like variadic calls */
 			return $this->{$getter}();
+		} elseif (property_exists($this, $key)) {
+			/** @phpstan-ignore-next-line PhpStan does not like variadic calls */
+			return $this->{$key};
 		} elseif (property_exists($this, $studlyKey)) {
+			/** @phpstan-ignore-next-line PhpStan does not like variadic calls */
 			return $this->{$studlyKey};
 		} else {
-			throw new LycheeInvalidArgumentException('neither property nor getter method exist');
+			throw new LycheeInvalidArgumentException('neither property nor getter method exist for [' . $getter . '/' . $key . '/' . $studlyKey . ']');
 		}
 	}
 
 	/**
-	 * Convert the model to its string representation.
+	 * Determine if the given relation is loaded.
 	 *
-	 * @return string
+	 * @param string $key
 	 *
-	 * @throws JsonEncodingException
+	 * @return bool
 	 */
-	public function __toString(): string
+	public function relationLoaded($key)
 	{
-		return $this->toJson();
+		return $key === 'photos' && $this->photos !== null;
 	}
 }

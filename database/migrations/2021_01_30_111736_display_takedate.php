@@ -1,35 +1,25 @@
 <?php
 
-use App\Models\Configs;
-use Illuminate\Database\Migrations\Migration;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-class DisplayTakedate extends Migration
-{
-	/**
-	 * Run the migrations.
-	 *
-	 * @return void
-	 */
-	public function up()
+use App\Legacy\BaseConfigMigration;
+
+return new class() extends BaseConfigMigration {
+	public function getConfigs(): array
 	{
-		DB::table('configs')->insert([
+		return [
 			[
 				'key' => 'album_subtitle_type',
 				'value' => 'oldstyle',
 				'confidentiality' => '0',
 				'cat' => 'Gallery',
 				'type_range' => 'description|takedate|creation|oldstyle',
+				'description' => '',
 			],
-		]);
+		];
 	}
-
-	/**
-	 * Reverse the migrations.
-	 *
-	 * @return void
-	 */
-	public function down()
-	{
-		Configs::where('key', '=', 'album_subtitle_type')->delete();
-	}
-}
+};

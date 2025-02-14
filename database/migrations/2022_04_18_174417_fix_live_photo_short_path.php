@@ -1,12 +1,17 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 use Doctrine\DBAL\Exception as DBALException;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-class FixLivePhotoShortPath extends Migration
-{
+return new class() extends Migration {
 	private string $driverName;
 
 	/**
@@ -21,11 +26,9 @@ class FixLivePhotoShortPath extends Migration
 	/**
 	 * Run the migrations.
 	 *
-	 * @return void
-	 *
 	 * @throws RuntimeException
 	 */
-	public function up()
+	public function up(): void
 	{
 		// MySQL misuses the ANSI SQL concatenation operator `||` for
 		// a logical OR and provides the proprietary `CONCAT` statement
@@ -33,7 +36,7 @@ class FixLivePhotoShortPath extends Migration
 		$sqlConcatLivePhotoPath = match ($this->driverName) {
 			'mysql' => DB::raw('CONCAT(\'big/\', live_photo_short_path)'),
 			'pgsql', 'sqlite' => DB::raw('\'big/\' || live_photo_short_path'),
-			default => throw new \RuntimeException('Unknown DBMS')
+			default => throw new \RuntimeException('Unknown DBMS'),
 		};
 
 		DB::table('photos')
@@ -45,11 +48,9 @@ class FixLivePhotoShortPath extends Migration
 	/**
 	 * Reverse the migrations.
 	 *
-	 * @return void
-	 *
 	 * @throws RuntimeException
 	 */
-	public function down()
+	public function down(): void
 	{
 		// In contrast to all other programming languages, the first character
 		// of a string has index 1 (not 0) in SQL.
@@ -57,7 +58,7 @@ class FixLivePhotoShortPath extends Migration
 		$sqlSubstringLivePhotoPath = match ($this->driverName) {
 			'mysql', 'pgsql' => DB::raw('SUBSTRING(live_photo_short_path FROM 5)'),
 			'sqlite' => DB::raw('SUBSTR(live_photo_short_path, 5)'),
-			default => throw new \RuntimeException('Unknown DBMS')
+			default => throw new \RuntimeException('Unknown DBMS'),
 		};
 
 		DB::table('photos')
@@ -65,4 +66,4 @@ class FixLivePhotoShortPath extends Migration
 			->where('live_photo_short_path', 'like', '%/%')
 			->update(['live_photo_short_path' => $sqlSubstringLivePhotoPath]);
 	}
-}
+};

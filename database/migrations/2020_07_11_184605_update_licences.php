@@ -1,20 +1,25 @@
 <?php
 
-use App\Models\Configs;
-use App\Models\Photo;
-use Illuminate\Database\Migrations\Migration;
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
-class UpdateLicences extends Migration
-{
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+
+return new class() extends Migration {
 	/**
 	 * Update the fields.
 	 *
-	 * @param array $default_values
+	 * @param array{key:string,value:string,cat:string,type_range:string,confidentiality:string}[] $default_values
 	 */
-	private function update_fields(array &$default_values)
+	private function update_fields(array &$default_values): void
 	{
 		foreach ($default_values as $value) {
-			Configs::updateOrCreate(
+			DB::table('configs')->updateOrInsert(
 				['key' => $value['key']],
 				[
 					'cat' => $value['cat'],
@@ -27,10 +32,8 @@ class UpdateLicences extends Migration
 
 	/**
 	 * Run the migrations.
-	 *
-	 * @return void
 	 */
-	public function up()
+	public function up(): void
 	{
 		defined('LICENSE') or define('LICENSE', 'license');
 
@@ -47,32 +50,30 @@ class UpdateLicences extends Migration
 		$this->update_fields($default_values);
 
 		// Get all CC licences
-		$photos = Photo::where('license', 'like', 'CC-%')->get();
-		if (count($photos) == 0) {
-			return false;
+		/** @var Collection<int,object{id:string,license:string}> $photos */
+		$photos = DB::table('photos')->where('license', 'like', 'CC-%')->get();
+		if ($photos->isEmpty()) {
+			return;
 		}
 		foreach ($photos as $photo) {
-			$photo->license = $photo->license . '-4.0';
-			$photo->save();
+			DB::table('photos')->where('id', '=', $photo->id)->update(['license' => $photo->license . '-4.0']);
 		}
 	}
 
 	/**
 	 * Reverse the migrations.
-	 *
-	 * @return void
 	 */
-	public function down()
+	public function down(): void
 	{
 		// Get all CC licences
-		$photos = Photo::where('license', 'like', 'CC-%')->get();
-		if (count($photos) == 0) {
-			return false;
+		/** @var Collection<int,object{id:string,license:string}> $photos */
+		$photos = DB::table('photos')->where('license', 'like', 'CC-%')->get();
+		if ($photos->isEmpty()) {
+			return;
 		}
 		foreach ($photos as $photo) {
 			// Delete version
-			$photo->license = substr($photo->license, 0, -4);
-			$photo->save();
+			DB::table('photos')->where('id', '=', $photo->id)->update(['license' => substr($photo->license, 0, -4)]);
 		}
 	}
-}
+};

@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Exceptions;
 
 /**
@@ -16,7 +22,7 @@ class ReservedDirectoryException extends ConflictingPropertyException
 {
 	public const DEFAULT_MESSAGE = 'The given path is a reserved path of Lychee';
 
-	public function __construct(string $msg = self::DEFAULT_MESSAGE, \Throwable $previous = null)
+	public function __construct(string $msg = self::DEFAULT_MESSAGE, ?\Throwable $previous = null)
 	{
 		parent::__construct($msg, $previous);
 	}

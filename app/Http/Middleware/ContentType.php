@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Http\Middleware;
 
 use App\Exceptions\Internal\LycheeInvalidArgumentException;
@@ -34,12 +40,17 @@ class ContentType
 	 */
 	public function handle(Request $request, \Closure $next, string $contentType): mixed
 	{
+		// Skip if check is disabled
+		if (config('features.require-content-type') === false) {
+			return $next($request);
+		}
+
 		if ($contentType === self::JSON) {
 			if (!$request->isJson()) {
 				throw new UnexpectedContentType(self::JSON);
 			}
 		} elseif ($contentType === self::MULTIPART) {
-			if ($request->getContentType() !== 'form') {
+			if ($request->getContentTypeFormat() !== 'form') {
 				throw new UnexpectedContentType(self::MULTIPART);
 			}
 		} else {

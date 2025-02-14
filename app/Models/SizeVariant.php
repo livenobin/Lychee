@@ -1,74 +1,85 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models;
 
 use App\Actions\SizeVariant\Delete;
 use App\Casts\MustNotSetCast;
+use App\Enum\SizeVariantType;
+use App\Enum\StorageDiskType;
 use App\Exceptions\ConfigurationException;
-use App\Exceptions\Internal\InvalidSizeVariantException;
 use App\Exceptions\MediaFileOperationException;
 use App\Exceptions\ModelDBException;
-use App\Facades\AccessControl;
-use App\Image\FlysystemFile;
-use App\Models\Extensions\HasAttributesPatch;
+use App\Http\Resources\Models\SizeVariantResource;
+use App\Image\Files\FlysystemFile;
+use App\Models\Builders\SizeVariantBuilder;
 use App\Models\Extensions\HasBidirectionalRelationships;
+use App\Models\Extensions\HasUrlGenerator;
 use App\Models\Extensions\ThrowsConsistentExceptions;
-use App\Models\Extensions\UseFixedQueryBuilder;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Models\Extensions\UTCBasedTimes;
 use App\Relations\HasManyBidirectionally;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
-use League\Flysystem\Adapter\Local;
-
-// TODO: Uncomment the following line, if Lychee really starts to support AWS s3.
-// The previous code already contained some first steps for S3, but relied
-// on the fact that the associated disk was called "s3".
-// This only requires a string comparison, but is not robust, because the
-// disk name can be anything (depending on what the user configures in
-// config.php), but does not say anything about the actually used
-// driver/adapter.
-// Moreover, if any user had ever tried to actually use S3, the code would
-// have crashed, because the Laravel framework would try to load the adapter
-// below, but the adapter does not exist and is not part of our Composer
-// dependencies
-// use League\Flysystem\AwsS3v3\AwsS3Adapter;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 
 /**
  * Class SizeVariant.
  *
  * Describes a size variant of a photo.
  *
- * @property int                 id
- * @property string              photo_id
- * @property Photo               photo
- * @property int                 type
- * @property string              short_path
- * @property string              url
- * @property string              full_path
- * @property int                 width
- * @property int                 height
- * @property int                 filesize
- * @property Collection<SymLink> sym_links
+ * @property int                  $id
+ * @property string               $photo_id
+ * @property Photo                $photo
+ * @property SizeVariantType      $type
+ * @property string               $short_path
+ * @property string               $url
+ * @property int                  $width
+ * @property int                  $height
+ * @property float                $ratio
+ * @property StorageDiskType|null $storage_disk
+ * @property int                  $filesize
+ * @property Collection<SymLink>  $sym_links
+ *
+ * @method static SizeVariantBuilder|SizeVariant addSelect($column)
+ * @method static SizeVariantBuilder|SizeVariant join(string $table, string $first, string $operator = null, string $second = null, string $type = 'inner', string $where = false)
+ * @method static SizeVariantBuilder|SizeVariant joinSub($query, $as, $first, $operator = null, $second = null, $type = 'inner', $where = false)
+ * @method static SizeVariantBuilder|SizeVariant leftJoin(string $table, string $first, string $operator = null, string $second = null)
+ * @method static SizeVariantBuilder|SizeVariant newModelQuery()
+ * @method static SizeVariantBuilder|SizeVariant newQuery()
+ * @method static SizeVariantBuilder|SizeVariant orderBy($column, $direction = 'asc')
+ * @method static SizeVariantBuilder|SizeVariant query()
+ * @method static SizeVariantBuilder|SizeVariant select($columns = [])
+ * @method static SizeVariantBuilder|SizeVariant whereFilesize($value)
+ * @method static SizeVariantBuilder|SizeVariant whereHeight($value)
+ * @method static SizeVariantBuilder|SizeVariant whereId($value)
+ * @method static SizeVariantBuilder|SizeVariant whereIn(string $column, string $values, string $boolean = 'and', string $not = false)
+ * @method static SizeVariantBuilder|SizeVariant whereNotIn(string $column, string $values, string $boolean = 'and')
+ * @method static SizeVariantBuilder|SizeVariant wherePhotoId($value)
+ * @method static SizeVariantBuilder|SizeVariant whereShortPath($value)
+ * @method static SizeVariantBuilder|SizeVariant whereType($value)
+ * @method static SizeVariantBuilder|SizeVariant whereWidth($value)
+ *
+ * @mixin \Eloquent
  */
 class SizeVariant extends Model
 {
 	use UTCBasedTimes;
-	use HasAttributesPatch;
 	use HasBidirectionalRelationships;
-	use ThrowsConsistentExceptions {
-		ThrowsConsistentExceptions::delete as private internalDelete;
-	}
-	use UseFixedQueryBuilder;
+	use ThrowsConsistentExceptions;
+	use ToArrayThrowsNotImplemented;
+	/** @phpstan-use HasFactory<\Database\Factories\SizeVariantFactory> */
+	use HasFactory;
 
-	public const ORIGINAL = 0;
-	public const MEDIUM2X = 1;
-	public const MEDIUM = 2;
-	public const SMALL2X = 3;
-	public const SMALL = 4;
-	public const THUMB2X = 5;
-	public const THUMB = 6;
+	use HasUrlGenerator;
 
 	/**
 	 * This model has no own timestamps as it is inseparably bound to its
@@ -78,19 +89,23 @@ class SizeVariant extends Model
 	 */
 	public $timestamps = false;
 
+	/**
+	 * @var array<string,string>
+	 */
 	protected $casts = [
 		'id' => 'integer',
-		'type' => 'integer',
-		'full_path' => MustNotSetCast::class . ':short_path',
+		'type' => SizeVariantType::class,
 		'url' => MustNotSetCast::class . ':short_path',
 		'width' => 'integer',
 		'height' => 'integer',
 		'filesize' => 'integer',
+		'ratio' => 'float',
+		'storage_disk' => StorageDiskType::class,
 	];
 
 	/**
-	 * @var string[] The list of attributes which exist as columns of the DB
-	 *               relation but shall not be serialized to JSON
+	 * @var array<int,string> The list of attributes which exist as columns of the DB
+	 *                        relation but shall not be serialized to JSON
 	 */
 	protected $hidden = [
 		'id', // irrelevant, because a size variant is always serialized as an embedded object of its photo
@@ -101,19 +116,36 @@ class SizeVariant extends Model
 	];
 
 	/**
-	 * @var string[] The list of "virtual" attributes which do not exist as
-	 *               columns of the DB relation but which shall be appended to
-	 *               JSON from accessors
+	 * @var array<int,string> The list of "virtual" attributes which do not exist as
+	 *                        columns of the DB relation but which shall be appended to
+	 *                        JSON from accessors
 	 */
 	protected $appends = [
 		'url',
 	];
 
 	/**
+	 * The attributes that are mass assignable.
+	 *
+	 * @var array<int,string>
+	 */
+	protected $fillable = ['photo_id', 'storage_disk', 'type', 'short_path', 'width', 'height', 'filesize', 'ratio'];
+
+	/**
+	 * @param $query
+	 *
+	 * @return SizeVariantBuilder
+	 */
+	public function newEloquentBuilder($query): SizeVariantBuilder
+	{
+		return new SizeVariantBuilder($query);
+	}
+
+	/**
 	 * Returns the association to the photo which this size variant belongs
 	 * to.
 	 *
-	 * @return BelongsTo
+	 * @return BelongsTo<Photo,$this>
 	 */
 	public function photo(): BelongsTo
 	{
@@ -124,7 +156,7 @@ class SizeVariant extends Model
 	 * Returns the association to the symbolics links which point to this
 	 * size variant.
 	 *
-	 * @return HasManyBidirectionally
+	 * @return HasManyBidirectionally<SymLink,$this>
 	 */
 	public function sym_links(): HasManyBidirectionally
 	{
@@ -148,80 +180,58 @@ class SizeVariant extends Model
 	 */
 	public function getUrlAttribute(): string
 	{
-		if (
-			(AccessControl::is_admin() && Configs::get_value('SL_for_admin', '0') === '0') ||
-			Configs::get_value('SL_enable', '0') == '0'
-		) {
-			return Storage::url($this->short_path);
+		$url = self::pathToUrl(
+			$this->short_path,
+			$this->storage_disk->value,
+			$this->type,
+		);
+
+		if ($url !== null) {
+			return $url;
 		}
 
-		// In order to allow a grace period, we create a new symbolic link,
-		// if the most recent existing link has reached 2/3 of its lifetime
-		$maxLifetime = intval(Configs::get_value('SL_life_time_days', '3')) * 24 * 60 * 60;
-		$gracePeriod = $maxLifetime / 3;
+		// We are using the symlink option.
+		$imageDisk = Storage::disk($this->storage_disk->value);
+		/** @disregard P1013 */
+		$storageAdapter = $imageDisk->getAdapter();
 
-		$storageAdapter = Storage::disk()->getDriver()->getAdapter();
-
-		// TODO: Uncomment these line when Laravel really starts to support s3
-		/*if ($storageAdapter instanceof AwsS3Adapter) {
-			return Storage::temporaryUrl($this->short_path, now()->addSeconds($maxLifetime));
-		}*/
-
-		if ($storageAdapter instanceof Local) {
-			/** @var ?SymLink $symLink */
-			$symLink = $this->sym_links()->latest()->first();
-			if ($symLink == null || $symLink->created_at->isBefore(now()->subSeconds($gracePeriod))) {
-				/** @var SymLink $symLink */
-				$symLink = $this->sym_links()->create();
-			}
-
-			return $symLink->url;
+		if ($storageAdapter instanceof LocalFilesystemAdapter) {
+			return $this->getSymLinkUrl();
 		}
 
+		// @codeCoverageIgnoreStart
 		throw new ConfigurationException('the chosen storage adapter "' . get_class($storageAdapter) . '" does not support the symbolic linking feature');
+		// @codeCoverageIgnoreEnd
 	}
 
 	/**
-	 * Accessor for the "virtual" attribute {@link SizeVariant::$full_path}.
+	 * Get the symlink url if possible.
 	 *
-	 * Returns the full path of the size variant as it needs to be input into
-	 * some low-level PHP functions like `unlink`.
-	 * This is a convenient method and wraps {@link SizeVariant::$short_path}
-	 * into {@link \Illuminate\Support\Facades\Storage::path()}.
-	 *
-	 * @return string the full path of the file
+	 * @return string
 	 */
-	public function getFullPathAttribute(): string
+	private function getSymLinkUrl(): string
 	{
-		return Storage::path($this->short_path);
+		// In order to allow a grace period, we create a new symbolic link,
+		// if the most recent existing link has reached 2/3 of its lifetime
+		$maxLifetime = Configs::getValueAsInt('SL_life_time_days') * 24 * 60 * 60;
+		$gracePeriod = $maxLifetime / 3;
+
+		/** @var ?SymLink $symLink */
+		$symLink = $this->sym_links()->latest()->first();
+		if ($symLink === null || $symLink->created_at->isBefore(now()->subSeconds($gracePeriod))) {
+			/** @var SymLink $symLink */
+			$symLink = $this->sym_links()->create();
+		}
+
+		return $symLink->url;
 	}
 
 	public function getFile(): FlysystemFile
 	{
-		return new FlysystemFile(Storage::disk(), $this->short_path);
-	}
-
-	/**
-	 * Mutator of the attribute {@link SizeVariant::$type}.
-	 *
-	 * @param int $sizeVariantType the type of size variant; allowed values are
-	 *                             {@link SizeVariant::ORIGINAL},
-	 *                             {@link SizeVariant::MEDIUM2X},
-	 *                             {@link SizeVariant::MEDIUM},
-	 *                             {@link SizeVariant::SMALL2X},
-	 *                             {@link SizeVariant::SMALL},
-	 *                             {@link SizeVariant::THUMB2X}, and
-	 *                             {@link SizeVariant::THUMB}
-	 *
-	 * @throws InvalidSizeVariantException thrown if `$sizeVariantType` is
-	 *                                     out-of-bounds
-	 */
-	public function setSizeVariantAttribute(int $sizeVariantType): void
-	{
-		if (self::ORIGINAL > $sizeVariantType || $sizeVariantType > self::THUMB) {
-			throw new InvalidSizeVariantException('passed size variant ' . $sizeVariantType . ' out-of-range');
-		}
-		$this->attributes['type'] = $sizeVariantType;
+		return new FlysystemFile(
+			Storage::disk($this->storage_disk->value),
+			$this->short_path
+		);
 	}
 
 	/**
@@ -235,5 +245,10 @@ class SizeVariant extends Model
 		$fileDeleter = (new Delete())->do([$this->id]);
 		$this->exists = false;
 		$fileDeleter->do();
+	}
+
+	public function toResource(bool $noUrl = false): SizeVariantResource
+	{
+		return new SizeVariantResource($this, noUrl: $noUrl);
 	}
 }

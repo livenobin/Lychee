@@ -1,22 +1,38 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Models;
 
 use App\Actions\Album\Delete;
+use App\DTO\AlbumSortingCriterion;
+use App\Enum\AspectRatioType;
+use App\Enum\ColumnSortingType;
+use App\Enum\LicenseType;
+use App\Enum\OrderSortingType;
+use App\Enum\TimelineAlbumGranularity;
+use App\Exceptions\ConfigurationKeyMissingException;
 use App\Exceptions\Internal\QueryBuilderException;
 use App\Exceptions\MediaFileOperationException;
 use App\Exceptions\ModelDBException;
-use App\Models\Extensions\AlbumBuilder;
+use App\Models\Builders\AlbumBuilder;
 use App\Models\Extensions\BaseAlbum;
+use App\Models\Extensions\ToArrayThrowsNotImplemented;
 use App\Relations\HasAlbumThumb;
 use App\Relations\HasManyChildAlbums;
 use App\Relations\HasManyChildPhotos;
 use App\Relations\HasManyPhotosRecursively;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Query\Builder as BaseBuilder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Kalnoy\Nestedset\Collection as NSCollection;
 use Kalnoy\Nestedset\DescendantsRelation;
 use Kalnoy\Nestedset\Node;
 use Kalnoy\Nestedset\NodeTrait;
@@ -24,26 +40,107 @@ use Kalnoy\Nestedset\NodeTrait;
 /**
  * Class Album.
  *
- * @property string|null       $parent_id
- * @property Album|null        $parent
- * @property Collection<Album> $children
- * @property Collection<Photo> $all_photos
- * @property string            $license
- * @property string|null       $cover_id
- * @property Photo|null        $cover
- * @property string|null       $track_short_path
- * @property string|null       $track_url
- * @property int               $_lft
- * @property int               $_rgt
+ * @property string                   $id
+ * @property string|null              $parent_id
+ * @property Album|null               $parent
+ * @property Collection<int,Album>    $children
+ * @property int                      $num_children             The number of children.
+ * @property Collection<int,Photo>    $all_photos
+ * @property int                      $num_photos               The number of photos in this album (excluding photos in subalbums).
+ * @property LicenseType              $license
+ * @property string|null              $cover_id
+ * @property Photo|null               $cover
+ * @property string|null              $header_id
+ * @property Photo|null               $header
+ * @property string|null              $track_short_path
+ * @property string|null              $track_url
+ * @property AspectRatioType|null     $album_thumb_aspect_ratio
+ * @property TimelineAlbumGranularity $album_timeline
+ * @property int                      $_lft
+ * @property int                      $_rgt
+ * @property BaseAlbumImpl            $base_class
+ * @property User|null                $owner
  *
- * @method static       AlbumBuilder query()                       Begin querying the model.
- * @method static       AlbumBuilder with(array|string $relations) Begin querying the model with eager loading.
- * @method AlbumBuilder newModelQuery()                            Get a new, "pure" query builder for the model's table without any scopes, eager loading, etc.
- * @method AlbumBuilder newQuery()                                 Get a new query builder for the model's table.
+ * @method static AlbumBuilder|Album query()                       Begin querying the model.
+ * @method static AlbumBuilder|Album with(array|string $relations) Begin querying the model with eager loading.
+ * @method        AlbumBuilder|Album newModelQuery()               Get a new, "pure" query builder for the model's table without any scopes, eager loading, etc.
+ * @method        AlbumBuilder|Album newQuery()                    Get a new query builder for the model's table.
+ *
+ * @property Collection<int,AccessPermission> $access_permissions
+ * @property int|null                         $access_permissions_count
+ * @property AccessPermission|null            $current_user_permissions
+ * @property AccessPermission|null            $public_permissions
+ * @property Collection<int,User>             $shared_with
+ * @property int|null                         $shared_with_count
+ *
+ * @method static AlbumBuilder|Album         addSelect($column)
+ * @method static NSCollection<int,  static> all($columns = ['*'])
+ * @method static AlbumBuilder|Album         ancestorsAndSelf($id, array $columns = [])
+ * @method static AlbumBuilder|Album         ancestorsOf($id, array $columns = [])
+ * @method static AlbumBuilder|Album         applyNestedSetScope(?string $table = null)
+ * @method static AlbumBuilder|Album         countErrors()
+ * @method static AlbumBuilder|Album         d()
+ * @method static AlbumBuilder|Album         defaultOrder(string $dir = 'asc')
+ * @method static AlbumBuilder|Album         descendantsAndSelf($id, array $columns = [])
+ * @method static AlbumBuilder|Album         descendantsOf($id, array $columns = [], $andSelf = false)
+ * @method static AlbumBuilder|Album         fixSubtree($root)
+ * @method static AlbumBuilder|Album         fixTree($root = null)
+ * @method static NSCollection<int,  static> get($columns = ['*'])
+ * @method static AlbumBuilder|Album         getNodeData($id, $required = false)
+ * @method static AlbumBuilder|Album         getPlainNodeData($id, $required = false)
+ * @method static AlbumBuilder|Album         getTotalErrors()
+ * @method static AlbumBuilder|Album         hasChildren()
+ * @method static AlbumBuilder|Album         hasParent()
+ * @method static AlbumBuilder|Album         isBroken()
+ * @method static AlbumBuilder|Album         join(string $table, string $first, string $operator = null, string $second = null, string $type = 'inner', string $where = false)
+ * @method static AlbumBuilder|Album         joinSub($query, $as, $first, $operator = null, $second = null, $type = 'inner', $where = false)
+ * @method static AlbumBuilder|Album         leaves(array $columns = [])
+ * @method static AlbumBuilder|Album         leftJoin(string $table, string $first, string $operator = null, string $second = null)
+ * @method static AlbumBuilder|Album         makeGap(int $cut, int $height)
+ * @method static AlbumBuilder|Album         moveNode($key, $position)
+ * @method static AlbumBuilder|Album         orWhereAncestorOf(bool $id, bool $andSelf = false)
+ * @method static AlbumBuilder|Album         orWhereDescendantOf($id)
+ * @method static AlbumBuilder|Album         orWhereNodeBetween($values)
+ * @method static AlbumBuilder|Album         orWhereNotDescendantOf($id)
+ * @method static AlbumBuilder|Album         orderBy($column, $direction = 'asc')
+ * @method static AlbumBuilder|Album         rebuildSubtree($root, array $data, $delete = false)
+ * @method static AlbumBuilder|Album         rebuildTree(array $data, $delete = false, $root = null)
+ * @method static AlbumBuilder|Album         reversed()
+ * @method static AlbumBuilder|Album         root(array $columns = [])
+ * @method static AlbumBuilder|Album         select($columns = [])
+ * @method static AlbumBuilder|Album         whereAncestorOf($id, $andSelf = false, $boolean = 'and')
+ * @method static AlbumBuilder|Album         whereAncestorOrSelf($id)
+ * @method static AlbumBuilder|Album         whereCoverId($value)
+ * @method static AlbumBuilder|Album         whereDescendantOf($id, $boolean = 'and', $not = false, $andSelf = false)
+ * @method static AlbumBuilder|Album         whereDescendantOrSelf(string $id, string $boolean = 'and', string $not = false)
+ * @method static AlbumBuilder|Album         whereId($value)
+ * @method static AlbumBuilder|Album         whereIn(string $column, string $values, string $boolean = 'and', string $not = false)
+ * @method static AlbumBuilder|Album         whereIsAfter($id, $boolean = 'and')
+ * @method static AlbumBuilder|Album         whereIsBefore($id, $boolean = 'and')
+ * @method static AlbumBuilder|Album         whereIsLeaf()
+ * @method static AlbumBuilder|Album         whereIsRoot()
+ * @method static AlbumBuilder|Album         whereLft($value)
+ * @method static AlbumBuilder|Album         whereLicense($value)
+ * @method static AlbumBuilder|Album         whereNodeBetween($values, $boolean = 'and', $not = false)
+ * @method static AlbumBuilder|Album         whereNotDescendantOf($id)
+ * @method static AlbumBuilder|Album         whereNotIn(string $column, string $values, string $boolean = 'and')
+ * @method static AlbumBuilder|Album         whereParentId($value)
+ * @method static AlbumBuilder|Album         whereRgt($value)
+ * @method static AlbumBuilder|Album         whereTrackShortPath($value)
+ * @method static AlbumBuilder|Album         withDepth(string $as = 'depth')
+ * @method static AlbumBuilder|Album         withoutRoot()
+ *
+ * // * @mixin \Eloquent
+ *
+ * @implements Node<Album>
  */
 class Album extends BaseAlbum implements Node
 {
+	/** @phpstan-use NodeTrait<Album> */
 	use NodeTrait;
+	use ToArrayThrowsNotImplemented;
+	/** @phpstan-use HasFactory<\Database\Factories\AlbumFactory> */
+	use HasFactory;
 
 	/**
 	 * The model's attributes.
@@ -54,49 +151,40 @@ class Album extends BaseAlbum implements Node
 	 * only works properly, if it knows which attributes belong to the parent
 	 * class and which attributes belong to the child class.
 	 *
-	 * @var array
+	 * @var array<string, mixed>
 	 */
 	protected $attributes = [
 		'id' => null,
 		'parent_id' => null,
+		'album_timeline' => null,
 		'license' => 'none',
 		'cover_id' => null,
+		'header_id' => null,
+		'album_thumb_aspect_ratio' => null,
 		'_lft' => null,
 		'_rgt' => null,
+		'album_sorting_col' => null,
+		'album_sorting_order' => null,
 	];
 
+	/**
+	 * @var array<string, string>
+	 */
 	protected $casts = [
 		'min_taken_at' => 'datetime',
 		'max_taken_at' => 'datetime',
+		'num_children' => 'integer',
+		'num_photos' => 'integer',
+		'album_thumb_aspect_ratio' => AspectRatioType::class,
+		'album_timeline' => TimelineAlbumGranularity::class,
 		'_lft' => 'integer',
 		'_rgt' => 'integer',
 	];
 
 	/**
-	 * @var string[] The list of attributes which exist as columns of the DB
-	 *               relation but shall not be serialized to JSON
-	 */
-	protected $hidden = [
-		'base_class', // don't serialize base class as a relation, the attributes of the base class are flatly merged into the JSON result
-		'cover',      // instead of cover, serialize thumb
-		'_lft',
-		'_rgt',
-		'parent',     // avoid infinite recursions
-		'all_photos', // never serialize recursive child photos of an album, even if the relation is loaded
-		'track_short_path',
-	];
-
-	/**
 	 * The relationships that should always be eagerly loaded by default.
 	 */
-	protected $with = ['cover', 'thumb'];
-
-	/**
-	 * @var string[] The list of "virtual" attributes which do not exist as
-	 *               columns of the DB relation but which shall be appended to
-	 *               JSON from accessors
-	 */
-	protected $appends = ['track_url'];
+	protected $with = ['cover', 'cover.size_variants', 'thumb'];
 
 	/**
 	 * Return the relationship between this album and photos which are
@@ -104,7 +192,7 @@ class Album extends BaseAlbum implements Node
 	 *
 	 * @return HasManyChildPhotos
 	 */
-	public function photos(): HasManyChildPhotos
+	public function photos(): HasManyChildPhotos // @phpstan-ignore-line
 	{
 		return new HasManyChildPhotos($this);
 	}
@@ -138,51 +226,62 @@ class Album extends BaseAlbum implements Node
 	/**
 	 * Get query for descendants of the node.
 	 *
-	 * @return DescendantsRelation
+	 * @return DescendantsRelation<Album>
 	 *
 	 * @throws QueryBuilderException
 	 */
 	public function descendants(): DescendantsRelation
 	{
 		try {
+			/** @var DescendantsRelation<Album> */
 			return new DescendantsRelation($this->newQuery(), $this);
+			// @codeCoverageIgnoreStart
 		} catch (\Throwable $e) {
 			throw new QueryBuilderException($e);
 		}
+		// @codeCoverageIgnoreEnd
 	}
 
 	/**
 	 * Return the relationship between an album and its cover.
 	 *
-	 * @return HasOne
+	 * @return HasOne<Photo,$this>
 	 */
 	public function cover(): HasOne
 	{
 		return $this->hasOne(Photo::class, 'id', 'cover_id');
 	}
 
-	protected function getLicenseAttribute(string $value): string
+	/**
+	 * Return the relationship between an album and its header.
+	 *
+	 * @return HasOne<Photo,$this>
+	 */
+	public function header(): HasOne
 	{
-		if ($value === 'none') {
-			return Configs::get_value('default_license');
+		return $this->hasOne(Photo::class, 'id', 'header_id');
+	}
+
+	/**
+	 * Return the License used by the album.
+	 *
+	 * @param string|LicenseType|null $value
+	 *
+	 * @return LicenseType
+	 *
+	 * @throws ConfigurationKeyMissingException
+	 */
+	protected function getLicenseAttribute(string|LicenseType|null $value): LicenseType
+	{
+		if ($value === null || $value === 'none' || $value === LicenseType::NONE) {
+			return Configs::getValueAsEnum('default_license', LicenseType::class);
+		}
+
+		if (is_string($value)) {
+			return LicenseType::from($value);
 		}
 
 		return $value;
-	}
-
-	public function toArray(): array
-	{
-		$result = parent::toArray();
-		$result['has_albums'] = !$this->isLeaf();
-
-		// The client expect the relation "children" to be named "albums".
-		// Rename it
-		if (key_exists('children', $result)) {
-			$result['albums'] = $result['children'];
-			unset($result['children']);
-		}
-
-		return $result;
 	}
 
 	/**
@@ -210,6 +309,8 @@ class Album extends BaseAlbum implements Node
 	 * Hence, we must avoid any attempt to delete the descendants twice.
 	 *
 	 * @return void
+	 *
+	 * @codeCoverageIgnore
 	 */
 	protected function deleteDescendants(): void
 	{
@@ -273,6 +374,50 @@ class Album extends BaseAlbum implements Node
 	}
 
 	/**
+	 * Defines accessor for the Aspect Ratio.
+	 *
+	 * @return AspectRatioType|null
+	 */
+	protected function getAlbumThumbAspectRatioAttribute(): ?AspectRatioType
+	{
+		return AspectRatioType::tryFrom($this->attributes['album_thumb_aspect_ratio'] ?? '1/1');
+	}
+
+	/**
+	 * Defines setter for Aspect Ratio.
+	 *
+	 * @param AspectRatioType|null $aspectRatio
+	 *
+	 * @return void
+	 */
+	protected function setAlbumThumbAspectRatioAttribute(?AspectRatioType $aspectRatio): void
+	{
+		$this->attributes['album_thumb_aspect_ratio'] = $aspectRatio?->value;
+	}
+
+	/**
+	 * Defines accessor for the Album Timeline.
+	 *
+	 * @return TimelineAlbumGranularity|null
+	 */
+	protected function getAlbumTimelineAttribute(): ?TimelineAlbumGranularity
+	{
+		return TimelineAlbumGranularity::tryFrom($this->attributes['album_timeline']);
+	}
+
+	/**
+	 * Defines setter for Album Timeline.
+	 *
+	 * @param TimelineAlbumGranularity|null $album_timeline
+	 *
+	 * @return void
+	 */
+	protected function setAlbumTimelineAttribute(?TimelineAlbumGranularity $album_timeline): void
+	{
+		$this->attributes['album_timeline'] = $album_timeline?->value;
+	}
+
+	/**
 	 * Accessor for the "virtual" attribute {@link Album::$track_url}.
 	 *
 	 * This is a convenient method which wraps
@@ -296,6 +441,8 @@ class Album extends BaseAlbum implements Node
 	 *
 	 * @throws ModelDBException
 	 * @throws MediaFileOperationException
+	 *
+	 * @codeCoverageIgnore tested Locally
 	 */
 	public function setTrack(UploadedFile $file): void
 	{
@@ -304,9 +451,9 @@ class Album extends BaseAlbum implements Node
 				Storage::delete($this->track_short_path);
 			}
 
-			$new_track_id = strtr(base64_encode(random_bytes(18)), '+/', '-_');
-			Storage::putFileAs('tracks/', $file, "$new_track_id.xml");
-			$this->track_short_path = "tracks/$new_track_id.xml";
+			$new_track_name = strtr(base64_encode(random_bytes(18)), '+/', '-_') . '.xml';
+			Storage::putFileAs('tracks/', $file, $new_track_name);
+			$this->track_short_path = 'tracks/' . $new_track_name;
 			$this->save();
 		} catch (ModelDBException $e) {
 			throw $e;
@@ -321,6 +468,8 @@ class Album extends BaseAlbum implements Node
 	 * @return void
 	 *
 	 * @throws ModelDBException
+	 *
+	 * @codeCoverageIgnore tested Locally
 	 */
 	public function deleteTrack(): void
 	{
@@ -330,5 +479,33 @@ class Album extends BaseAlbum implements Node
 		Storage::delete($this->track_short_path);
 		$this->track_short_path = null;
 		$this->save();
+	}
+
+	protected function getAlbumSortingAttribute(): ?AlbumSortingCriterion
+	{
+		$sortingColumn = $this->attributes['album_sorting_col'];
+		$sortingOrder = $this->attributes['album_sorting_order'];
+
+		return ($sortingColumn === null || $sortingOrder === null) ?
+			null :
+			new AlbumSortingCriterion(
+				ColumnSortingType::from($sortingColumn),
+				OrderSortingType::from($sortingOrder));
+	}
+
+	protected function setAlbumSortingAttribute(?AlbumSortingCriterion $sorting): void
+	{
+		$this->attributes['album_sorting_col'] = $sorting?->column->value;
+		$this->attributes['album_sorting_order'] = $sorting?->order->value;
+	}
+
+	/**
+	 * Returns the criterion acc. to which **albums** inside the album shall be sorted.
+	 *
+	 * @return AlbumSortingCriterion
+	 */
+	public function getEffectiveAlbumSorting(): AlbumSortingCriterion
+	{
+		return $this->getAlbumSortingAttribute() ?? AlbumSortingCriterion::createDefault();
 	}
 }

@@ -1,20 +1,23 @@
 <?php
 
-/** @noinspection PhpMultipleClassDeclarationsInspection */
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
 
 namespace App\Models\Extensions;
 
-use App\Contracts\InternalLycheeException;
+use App\Contracts\Exceptions\InternalLycheeException;
 use App\Exceptions\Internal\FailedModelAssumptionException;
-use App\Exceptions\Internal\MissingModelMethodException;
 use App\Exceptions\Internal\NotImplementedException;
 use App\Exceptions\ModelDBException;
-use App\Models\BaseAlbumImpl;
 use Illuminate\Contracts\Encryption\EncryptException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\InvalidCastException;
 use Illuminate\Database\Eloquent\JsonEncodingException;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 /**
@@ -25,7 +28,7 @@ use Illuminate\Support\Str;
  * {@link \App\Models\BaseAlbumImpl}.
  * This trait assumes that the using "child" classes provides a relation
  * called `base_class` which returns an instance of
- * {@link \Illuminate\Database\Eloquent\Relations\MorphOne} and refers
+ * {@link BelongsTo} and refers
  * to the implementation of the "parent" class.
  * This trait forwards calls to properties and relations which are not
  * defined by the "child" class to the "parent" class and therewith
@@ -38,6 +41,14 @@ use Illuminate\Support\Str;
 trait ForwardsToParentImplementation
 {
 	abstract protected function friendlyModelName(): string;
+
+	/**
+	 * Returns the relationship between this model and the implementation
+	 * of the "parent" class.
+	 *
+	 * @return BelongsTo
+	 */
+	abstract public function base_class(): BelongsTo;
 
 	/**
 	 * "Constructor" of trait.
@@ -68,7 +79,7 @@ trait ForwardsToParentImplementation
 	/**
 	 * Perform a model insert operation.
 	 *
-	 * @param Builder $query
+	 * @param Builder<static> $query
 	 *
 	 * @return bool
 	 *
@@ -97,7 +108,7 @@ trait ForwardsToParentImplementation
 	/**
 	 * Perform a model update operation.
 	 *
-	 * @param Builder $query
+	 * @param Builder<static> $query
 	 *
 	 * @return bool
 	 */
@@ -140,7 +151,7 @@ trait ForwardsToParentImplementation
 		} catch (\Throwable $e) {
 			$parentException = $e;
 		}
-		if ($parentException) {
+		if ($parentException !== null) {
 			throw ModelDBException::create($this->friendlyModelName(), 'deleting', $parentException);
 		}
 
@@ -159,7 +170,7 @@ trait ForwardsToParentImplementation
 			} catch (\Throwable $e) {
 				$baseException = $e;
 			}
-			if ($baseException) {
+			if ($baseException !== null) {
 				throw ModelDBException::create($this->friendlyModelName(), 'deleting', $baseException);
 			}
 		}
@@ -198,7 +209,7 @@ trait ForwardsToParentImplementation
 	 *
 	 * Inspired by {@link \Illuminate\Database\Eloquent\Concerns\HasAttributes::isDirty()}.
 	 *
-	 * @param array|string|null $attributes
+	 * @param string[]|string|null $attributes
 	 *
 	 * @return bool
 	 */
@@ -207,14 +218,15 @@ trait ForwardsToParentImplementation
 		$baseIsDirty = $this->relationLoaded('base_class') && $this->getRelation('base_class')->isDirty();
 
 		return $baseIsDirty || $this->hasChanges(
-			$this->getDirty(), is_array($attributes) ? $attributes : func_get_args()
+			$this->getDirty(),
+			is_array($attributes) ? $attributes : func_get_args()
 		);
 	}
 
 	/**
 	 * Convert the model instance to an array.
 	 *
-	 * @return array
+	 * @return array<string,mixed>
 	 */
 	public function toArray(): array
 	{
@@ -262,7 +274,7 @@ trait ForwardsToParentImplementation
 	 */
 	public function getAttribute($key): mixed
 	{
-		if (!$key) {
+		if ($key === '') {
 			return null;
 		}
 
@@ -276,7 +288,7 @@ trait ForwardsToParentImplementation
 		//     this class, and
 		//  2. does not work, because we cannot load the base class without
 		//     knowing the primary key.
-		if ($key == $this->getKeyName()) {
+		if ($key === $this->getKeyName()) {
 			// Sic!
 			// Don't use `$this->getKey()` because this would call
 			// `getAttribute` again, and we would end up in an infinite loop.
@@ -285,7 +297,7 @@ trait ForwardsToParentImplementation
 		}
 
 		// Avoid infinite loops, see below
-		if ($key == 'base_class') {
+		if ($key === 'base_class') {
 			return $this->getRelationValue($key);
 		}
 
@@ -293,10 +305,12 @@ trait ForwardsToParentImplementation
 		// mutator we will get the attribute's value.
 		// Otherwise, we will proceed as if the developers
 		// are asking for a relationship's value. This covers both types of values.
-		if (array_key_exists($key, $this->attributes) ||
+		if (
+			array_key_exists($key, $this->attributes) ||
 			array_key_exists($key, $this->casts) ||
 			$this->hasGetMutator($key) ||
-			$this->isClassCastable($key)) {
+			$this->isClassCastable($key)
+		) {
 			return $this->getAttributeValue($key);
 		}
 
@@ -317,8 +331,11 @@ trait ForwardsToParentImplementation
 		// If the "attribute" exists as a method on the model, we will just assume
 		// it is a relationship and will load and return results from the query
 		// and hydrate the relationship's value on the "relationships" array.
-		if (method_exists($this, $key) ||
-			(static::$relationResolvers[get_class($this)][$key] ?? null)) {
+		/** @disregard */
+		if (
+			method_exists($this, $key) ||
+			(static::$relationResolvers[get_class($this)][$key] ?? null)
+		) {
 			return $this->getRelationshipFromMethod($key);
 		}
 
@@ -359,7 +376,7 @@ trait ForwardsToParentImplementation
 		// `getRelationshipFromMethod` throws an exception if no such method
 		// exists.
 		// Bailing out with an exception prevents the infinite loop.
-		if ($key == 'base_class') {
+		if ($key === 'base_class') {
 			// If this is a newly created model, then we cannot resolve the
 			// relation to the base class from the database, because no such
 			// entity exists.
@@ -368,7 +385,7 @@ trait ForwardsToParentImplementation
 			// for a freshly created model.
 			$primaryKey = $this->getKey();
 			if (!$this->exists) {
-				if ($primaryKey) {
+				if ($primaryKey !== null) {
 					throw new FailedModelAssumptionException('the primary key must not be set if the model does not exist');
 				}
 				$baseModel = $this->base_class()->getRelated()->newInstance();
@@ -379,11 +396,8 @@ trait ForwardsToParentImplementation
 				// This model exists, but the relation to the base class
 				// has not yet been loaded.
 				// Load it now.
-				if (!$primaryKey) {
+				if ($primaryKey === null) {
 					throw new FailedModelAssumptionException('the model allegedly exists, but we don\'t have a primary key, cannot load base model');
-				}
-				if (!method_exists($this, 'base_class')) {
-					throw new MissingModelMethodException(get_class($this), 'base_class()');
 				}
 
 				return $this->getRelationshipFromMethod('base_class');
@@ -393,8 +407,11 @@ trait ForwardsToParentImplementation
 		// If the "attribute" exists as a method on the model, we will just assume
 		// it is a relationship and will load and return results from the query
 		// and hydrate the relationship's value on the "relationships" array.
-		if (method_exists($this, $key) ||
-			(static::$relationResolvers[get_class($this)][$key] ?? null)) {
+		/** @disregard */
+		if (
+			method_exists($this, $key) ||
+			(static::$relationResolvers[get_class($this)][$key] ?? null)
+		) {
 			return $this->getRelationshipFromMethod($key);
 		}
 
@@ -437,7 +454,7 @@ trait ForwardsToParentImplementation
 		// If an attribute is listed as a "date", we'll convert it from a DateTime
 		// instance into a form proper for storage in the database tables using
 		// the connection grammar's date format. We will auto set the values.
-		elseif ($value && $this->isDateAttribute($key)) {
+		elseif ($this->isDateAttribute($key)) {
 			$value = $this->fromDateTime($value);
 		}
 
@@ -467,7 +484,6 @@ trait ForwardsToParentImplementation
 		// on the parent class.
 		// Only if the parent class does not provide such an attribute either,
 		// we write it to the child class.
-		/** @var BaseAlbumImpl $baseClass */
 		$baseClass = $this->base_class;
 		if (
 			array_key_exists($key, $baseClass->getAttributes()) ||
@@ -488,10 +504,10 @@ trait ForwardsToParentImplementation
 	 *
 	 * @return void
 	 */
-	public function offsetUnset($offset)
+	public function offsetUnset($offset): void
 	{
 		// Prevent that the base model is unset from the set of relations
-		if ($offset == 'base_class') {
+		if ($offset === 'base_class') {
 			return;
 		}
 		parent::offsetUnset($offset);

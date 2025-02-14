@@ -1,19 +1,31 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Relations;
 
-use App\Actions\AlbumAuthorisationProvider;
-use App\Contracts\InternalLycheeException;
-use App\DTO\SortingCriterion;
+use App\Contracts\Exceptions\InternalLycheeException;
+use App\Enum\OrderSortingType;
 use App\Exceptions\Internal\NotImplementedException;
 use App\Models\Album;
 use App\Models\Extensions\SortingDecorator;
-use App\Models\Photo;
+use App\Policies\AlbumPolicy;
+use App\Policies\AlbumQueryPolicy;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Gate;
 
-class HasManyPhotosRecursively extends HasManyPhotos
+/**
+ * @disregard
+ *
+ * @extends BaseHasManyPhotos<Album>
+ */
+class HasManyPhotosRecursively extends BaseHasManyPhotos
 {
-	protected AlbumAuthorisationProvider $albumAuthorisationProvider;
+	protected AlbumQueryPolicy $albumQueryPolicy;
 
 	public function __construct(Album $owningAlbum)
 	{
@@ -21,8 +33,19 @@ class HasManyPhotosRecursively extends HasManyPhotos
 		// the parent constructor.
 		// The parent constructor calls `addConstraints` and thus our own
 		// attributes must be initialized by then
-		$this->albumAuthorisationProvider = resolve(AlbumAuthorisationProvider::class);
+		$this->albumQueryPolicy = resolve(AlbumQueryPolicy::class);
 		parent::__construct($owningAlbum);
+	}
+
+	public function getParent(): Album
+	{
+		/**
+		 * We know that the parent is of type `Album`,
+		 * because it was set in the constructor as `$owningAlbum`.
+		 *
+		 * @noinspection PhpIncompatibleReturnTypeInspection
+		 */
+		return $this->parent;
 	}
 
 	/**
@@ -36,7 +59,7 @@ class HasManyPhotosRecursively extends HasManyPhotos
 	public function addConstraints(): void
 	{
 		if (static::$constraints) {
-			$this->addEagerConstraints([$this->parent]);
+			$this->addEagerConstraints([$this->getParent()]);
 		}
 	}
 
@@ -60,15 +83,22 @@ class HasManyPhotosRecursively extends HasManyPhotos
 			throw new NotImplementedException('eagerly fetching all photos of an album is not implemented for multiple albums');
 		}
 
-		$this->photoAuthorisationProvider
-			->applySearchabilityFilter($this->query, $albums[0]);
+		$this->photoQueryPolicy
+			->applySearchabilityFilter(
+				query: $this->getRelationQuery(),
+				origin: $albums[0],
+				include_nsfw: true
+			);
 	}
 
+	/**
+	 * @return Collection<int,\App\Models\Photo>
+	 */
 	public function getResults(): Collection
 	{
-		/** @var Album $album */
+		/** @var Album|null $album */
 		$album = $this->parent;
-		if ($album === null || !$this->albumAuthorisationProvider->isAccessible($album)) {
+		if ($album === null || !Gate::check(AlbumPolicy::CAN_ACCESS, $album)) {
 			return $this->related->newCollection();
 		} else {
 			return parent::getResults();
@@ -81,11 +111,11 @@ class HasManyPhotosRecursively extends HasManyPhotos
 	 * This method is called by the framework after the unified result of
 	 * photos has been fetched by {@link HasManyPhotosRecursively::addEagerConstraints()}.
 	 *
-	 * @param array      $albums   the list of owning albums
-	 * @param Collection $photos   collection of {@link Photo} models which needs to be mapped to the albums
-	 * @param string     $relation the name of the relation
+	 * @param Album[]                           $albums   the list of owning albums
+	 * @param Collection<int,\App\Models\Photo> $photos   collection of {@link Photo} models which needs to be mapped to the albums
+	 * @param string                            $relation the name of the relation
 	 *
-	 * @return array
+	 * @return array<int,Album>
 	 *
 	 * @throws NotImplementedException
 	 */
@@ -97,14 +127,14 @@ class HasManyPhotosRecursively extends HasManyPhotos
 		/** @var Album $album */
 		$album = $albums[0];
 
-		if (!$this->albumAuthorisationProvider->isAccessible($album)) {
+		if (!Gate::check(AlbumPolicy::CAN_ACCESS, $album)) {
 			$album->setRelation($relation, $this->related->newCollection());
 		} else {
-			$sorting = $album->getEffectiveSorting();
+			$sorting = $album->getEffectivePhotoSorting();
 			$photos = $photos->sortBy(
-				$sorting->column,
-				in_array($sorting->column, SortingDecorator::POSTPONE_COLUMNS) ? SORT_NATURAL | SORT_FLAG_CASE : SORT_REGULAR,
-				$sorting->order === SortingCriterion::DESC
+				$sorting->column->value,
+				in_array($sorting->column, SortingDecorator::POSTPONE_COLUMNS, true) ? SORT_NATURAL | SORT_FLAG_CASE : SORT_REGULAR,
+				$sorting->order === OrderSortingType::DESC
 			)->values();
 			$album->setRelation($relation, $photos);
 		}

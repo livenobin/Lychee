@@ -1,35 +1,30 @@
 <?php
 
+/**
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) 2017-2018 Tobias Reich
+ * Copyright (c) 2018-2025 LycheeOrg.
+ */
+
 namespace App\Actions\Import;
 
-use App\Actions\Import\Extensions\Checks;
 use App\Actions\Photo\Create;
-use App\Actions\Photo\Strategies\ImportMode;
+use App\DTO\ImportMode;
 use App\Exceptions\Handler;
-use App\Exceptions\InsufficientFilesystemPermissions;
 use App\Exceptions\MassImportException;
-use App\Image\DownloadedFile;
-use App\Image\MediaFile;
+use App\Image\Files\BaseMediaFile;
+use App\Image\Files\DownloadedFile;
 use App\Models\Album;
 use App\Models\Configs;
 use App\Models\Photo;
 use Illuminate\Support\Collection;
+use Safe\Exceptions\InfoException;
+use function Safe\ini_get;
+use function Safe\parse_url;
+use function Safe\set_time_limit;
 
 class FromUrl
 {
-	use Checks;
-
-	/**
-	 * @throws InsufficientFilesystemPermissions
-	 */
-	public function __construct()
-	{
-		// TODO: Why do we explicitly perform this check here? We don't check the other import classes. We could just let the import fail.
-		// Moreover, we do not even use the `import` folder which is checked by this method.
-		// There is similar odd test in {@link \App\Actions\Photo\Create::add()} which uses another "check" trait.
-		$this->checkPermissions();
-	}
-
 	/**
 	 * Imports photos from a list of URLs.
 	 *
@@ -37,31 +32,40 @@ class FromUrl
 	 *
 	 * @param string[]   $urls
 	 * @param Album|null $album
+	 * @param int        $intendedOwnerId
 	 *
-	 * @return Collection<Photo> the collection of imported photos
+	 * @return Collection<int,Photo> the collection of imported photos
 	 *
 	 * @throws MassImportException
 	 */
-	public function do(array $urls, ?Album $album): Collection
+	public function do(array $urls, ?Album $album, int $intendedOwnerId): Collection
 	{
 		$result = new Collection();
 		$exceptions = [];
-		$create = new Create(new ImportMode(
-			true,
-			Configs::get_value('skip_duplicates', '0') === '1'
-		));
+		$create = new Create(
+			new ImportMode(deleteImported: true, skipDuplicates: Configs::getValueAsBool('skip_duplicates')),
+			$intendedOwnerId
+		);
 
 		foreach ($urls as $url) {
 			try {
 				// Reset the execution timeout for every iteration.
-				set_time_limit(ini_get('max_execution_time'));
+				try {
+					set_time_limit((int) ini_get('max_execution_time'));
+				} catch (InfoException) {
+					// Silently do nothing, if `set_time_limit` is denied.
+				}
 
+				// If the component parameter is specified, this function returns a string (or int in case of PHP_URL_PORT)
+				/** @var string $path */
 				$path = parse_url($url, PHP_URL_PATH);
 				$extension = '.' . pathinfo($path, PATHINFO_EXTENSION);
 
-				// Validate photo extension even when `$create->add()` will do later.
-				// This prevents us from downloading unsupported files.
-				MediaFile::assertIsSupportedOrAcceptedFileExtension($extension);
+				if ($extension !== '.') {
+					// Validate photo extension even when `$create->add()` will do later.
+					// This prevents us from downloading unsupported files.
+					BaseMediaFile::assertIsSupportedOrAcceptedFileExtension($extension);
+				}
 
 				// Download file
 				$downloadedFile = new DownloadedFile($url);
